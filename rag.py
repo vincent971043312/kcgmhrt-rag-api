@@ -40,6 +40,8 @@ from langchain.docstore.document import Document
 DOCS_DIR = os.getenv("DOCS_DIR", "docs")          # 放文件的資料夾
 DB_DIR = os.getenv("DB_DIR", "db")                # 向量資料庫路徑
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "my_rag_db")
+PDF_LOADER = os.getenv("PDF_LOADER", "auto").lower()  # auto | pypdf | pymupdf | pdfplumber | unstructured
+PDF_MIN_CHARS = int(os.getenv("PDF_MIN_CHARS", "50"))  # 視為空白的最小文字長度
 
 # ========= 驗證金鑰 =========
 if not os.getenv("OPENAI_API_KEY"):
@@ -115,11 +117,82 @@ def _safe_stem(filename: str) -> str:
     return safe[:100]
 
 
+def _load_pdf_docs(file_path: str):
+    """Load PDF with multiple strategies and fallbacks.
+
+    Priority:
+    - If PDF_LOADER is set (pypdf | pymupdf | pdfplumber | unstructured), try that only.
+    - Otherwise (auto): try PyMuPDF -> PDFPlumber -> PyPDF. If text is too short, fall through.
+    - Optionally try Unstructured (may require extra system deps on Heroku).
+
+    Returns a list[Document-like] with page_content and metadata.
+    """
+    strategies = []
+    choice = PDF_LOADER
+    if choice in {"pypdf", "pymupdf", "pdfplumber", "unstructured"}:
+        strategies = [choice]
+    else:
+        strategies = ["pymupdf", "pdfplumber", "pypdf", "unstructured"]
+
+    last_error = None
+    for name in strategies:
+        try:
+            if name == "pypdf":
+                loader = PyPDFLoader(file_path)
+                docs = loader.load()
+            elif name == "pymupdf":
+                try:
+                    from langchain_community.document_loaders import PyMuPDFLoader  # type: ignore
+                except Exception as e:  # pragma: no cover
+                    last_error = e
+                    continue
+                loader = PyMuPDFLoader(file_path)
+                docs = loader.load()
+            elif name == "pdfplumber":
+                try:
+                    from langchain_community.document_loaders import PDFPlumberLoader  # type: ignore
+                except Exception as e:  # pragma: no cover
+                    last_error = e
+                    continue
+                loader = PDFPlumberLoader(file_path)
+                docs = loader.load()
+            elif name == "unstructured":
+                try:
+                    from langchain_community.document_loaders import UnstructuredPDFLoader  # type: ignore
+                except Exception as e:  # pragma: no cover
+                    last_error = e
+                    continue
+                # Try hi_res strategy with potential OCR. May require tesseract on the system.
+                loader = UnstructuredPDFLoader(
+                    file_path,
+                    mode="elements",
+                    strategy="hi_res",
+                    infer_table_structure=True,
+                )
+                docs = loader.load()
+            else:
+                continue
+
+            total_chars = sum(len((d.page_content or "").strip()) for d in docs)
+            if total_chars < PDF_MIN_CHARS:
+                print(f"⚠️ PDF 文字過少（{total_chars} chars）嘗試其他 loader: {name}")
+                last_error = RuntimeError(f"too few chars via {name}")
+                continue
+            print(f"🧩 PDF 使用 loader：{name}（擷取 {total_chars} 字）")
+            return docs
+        except Exception as e:  # pragma: no cover
+            last_error = e
+            print(f"⚠️ PDF 載入器失敗：{name} => {e}")
+
+    # All failed
+    raise RuntimeError(f"PDF 擷取失敗：{os.path.basename(file_path)}（最後錯誤：{last_error}）")
+
+
 def _make_chat_llm(max_tokens: int = 512) -> ChatOpenAI:
     """建立 ChatOpenAI；若支援 `max_tokens` 則直接傳入，否則退回 `model_kwargs`。
     這可避免『請顯式指定參數』的警告，同時相容舊版型別檢查。
     """
-    kwargs: dict = {"model": "gpt-4o", "temperature": 0}
+    kwargs: dict = {"model": "gpt-5", "temperature": 0}
     try:
         params = inspect.signature(ChatOpenAI).parameters
     except Exception:
@@ -139,7 +212,17 @@ def load_documents():
         if lower.endswith(".txt"):
             loader = TextLoader(file_path, encoding="utf-8")
         elif lower.endswith(".pdf"):
-            loader = PyPDFLoader(file_path)
+            raw_docs = _load_pdf_docs(file_path)
+            for d in raw_docs:
+                meta = dict(d.metadata or {})
+                meta["source"] = file  # 保留來源檔名
+                all_docs.append(
+                    Document(
+                        page_content=d.page_content,
+                        metadata=meta,
+                    )
+                )
+            continue
         elif lower.endswith(".md"):
             loader = UnstructuredMarkdownLoader(file_path)
         else:
@@ -173,7 +256,7 @@ def build_or_load_db_for_file(file: str, force: bool = False) -> Chroma:
 
     # 嵌入設定：小批次避免超過 OpenAI 單請求 token 上限
     embeddings = OpenAIEmbeddings(
-        model="text-embedding-3-small",
+        model="text-embedding-3-large",
         chunk_size=128,
     )
 
@@ -230,14 +313,14 @@ def build_or_load_db_for_file(file: str, force: bool = False) -> Chroma:
     lower = file.lower()
     if lower.endswith('.txt'):
         loader = TextLoader(path, encoding='utf-8')
+        raw_docs = loader.load()
     elif lower.endswith('.pdf'):
-        loader = PyPDFLoader(path)
+        raw_docs = _load_pdf_docs(path)
     elif lower.endswith('.md'):
         loader = UnstructuredMarkdownLoader(path)
+        raw_docs = loader.load()
     else:
         raise ValueError(f"不支援的檔案格式: {file}")
-
-    raw_docs = loader.load()
     docs = []
     for d in raw_docs:
         meta = dict(d.metadata or {})
