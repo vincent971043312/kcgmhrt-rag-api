@@ -3,6 +3,13 @@ info:
   title: RAG Files API
   version: 1.0.0
   description: Simple per-file RAG API for ChatGPT Actions. Wraps your local LangChain+Chroma RAG.
+servers:
+  # 佈署後請將此 URL 改成你的 Heroku 網址
+  - url: https://kcgmhrt-acbc4e82a7da.herokuapp.com
+    description: Heroku deployment
+  # 本機開發可用（若用 ChatGPT Actions 的 Import from URL，會以來源 URL 為準）
+  - url: http://localhost:8000
+    description: Local development
 security:
   - bearerAuth: []
 paths:
@@ -13,6 +20,17 @@ paths:
       responses:
         "200":
           description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  openai_key:
+                    type: boolean
+                    description: Whether OPENAI_API_KEY is present on server
   /files:
     get:
       operationId: listFiles
@@ -49,6 +67,13 @@ paths:
                   minimum: 1
                   maximum: 10
                   default: 3
+             examples:
+               askExample:
+                 summary: Simple question
+                 value:
+                   file: example.pdf
+                   question: 請用重點條列摘要這份文件
+                   top_k: 3
       responses:
         "200":
           description: Answer with sources
@@ -63,6 +88,11 @@ paths:
                     type: array
                     items:
                       type: string
+               examples:
+                 answerExample:
+                   value:
+                     answer: 這份文件主要說明 A/B/C 三點…
+                     sources: [example.pdf]
   /reload:
     post:
       operationId: reloadIndex
@@ -80,6 +110,17 @@ paths:
       responses:
         "200":
           description: Rebuilt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: reloaded
+                  file:
+                    type: string
+                    example: example.pdf
 components:
   securitySchemes:
     bearerAuth:
