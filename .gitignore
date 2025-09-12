@@ -1,2 +1,7 @@
 .env
 .env.*
+db/
+__pycache__/
+*.pyc
+**/chroma.sqlite3
+**/*.bin
