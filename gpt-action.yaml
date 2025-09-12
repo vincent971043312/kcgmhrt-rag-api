@@ -67,13 +67,13 @@ paths:
                   minimum: 1
                   maximum: 10
                   default: 3
-             examples:
-               askExample:
-                 summary: Simple question
-                 value:
-                   file: example.pdf
-                   question: 請用重點條列摘要這份文件
-                   top_k: 3
+            examples:
+              askExample:
+                summary: Simple question
+                value:
+                  file: example.pdf
+                  question: 請用重點條列摘要這份文件
+                  top_k: 3
       responses:
         "200":
           description: Answer with sources
@@ -88,11 +88,11 @@ paths:
                     type: array
                     items:
                       type: string
-               examples:
-                 answerExample:
-                   value:
-                     answer: 這份文件主要說明 A/B/C 三點…
-                     sources: [example.pdf]
+              examples:
+                answerExample:
+                  value:
+                    answer: 這份文件主要說明 A/B/C 三點…
+                    sources: [example.pdf]
   /reload:
     post:
       operationId: reloadIndex
