@@ -190,9 +190,10 @@ def _load_pdf_docs(file_path: str):
 
 def _make_chat_llm(max_tokens: int = 512) -> ChatOpenAI:
     """建立 ChatOpenAI；若支援 `max_tokens` 則直接傳入，否則退回 `model_kwargs`。
-    這可避免『請顯式指定參數』的警告，同時相容舊版型別檢查。
+    這可避免型別提醒（Pylance: No parameter named "max_tokens"）與執行期警告的差異。
     """
-    kwargs: dict = {"model": "gpt-5", "temperature": 0}
+    model = os.getenv("OPENAI_MODEL", "gpt-4o")
+    kwargs: dict = {"model": model, "temperature": 0}
     try:
         params = inspect.signature(ChatOpenAI).parameters
     except Exception:
@@ -256,7 +257,7 @@ def build_or_load_db_for_file(file: str, force: bool = False) -> Chroma:
 
     # 嵌入設定：小批次避免超過 OpenAI 單請求 token 上限
     embeddings = OpenAIEmbeddings(
-        model="text-embedding-3-large",
+        model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
         chunk_size=128,
     )
 
@@ -358,6 +359,7 @@ def run_chat_for_file(file: str):
     qa = RetrievalQA.from_chain_type(
         llm=_make_chat_llm(max_tokens=512),
         retriever=retriever,
+        return_source_documents=False,
     )
 
     print("\n🤖 RAG 問答系統已啟動！（輸入 exit 離開；輸入 /help 看指令）")
@@ -419,8 +421,13 @@ def run_chat_for_file(file: str):
             continue
 
         # 一般問答
-        answer = qa.run(query)
-        print(f"👉 答案: {answer}")
+        try:
+            result = qa.invoke({"query": query})
+            answer = result.get("result", result)
+            print(f"👉 答案: {answer}")
+        except Exception as e:
+            print("⚠️ 檢索或生成時發生錯誤：", e)
+            print("💡 若你剛更換或更新了嵌入模型，請先輸入 /reload 重建索引再重試。")
 
 # ========= 問答系統 =========
 def start_chat():
