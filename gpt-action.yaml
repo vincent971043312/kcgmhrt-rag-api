@@ -1,0 +1,89 @@
+openapi: 3.1.0
+info:
+  title: RAG Files API
+  version: 1.0.0
+  description: Simple per-file RAG API for ChatGPT Actions. Wraps your local LangChain+Chroma RAG.
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      operationId: health
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+  /files:
+    get:
+      operationId: listFiles
+      summary: List available documents
+      responses:
+        "200":
+          description: A list of filenames under docs/
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+  /query:
+    post:
+      operationId: queryFile
+      summary: Ask a question against a specific file
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [file, question]
+              properties:
+                file:
+                  type: string
+                  description: Filename under docs/
+                question:
+                  type: string
+                  description: User question
+                top_k:
+                  type: integer
+                  minimum: 1
+                  maximum: 10
+                  default: 3
+      responses:
+        "200":
+          description: Answer with sources
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  answer:
+                    type: string
+                  sources:
+                    type: array
+                    items:
+                      type: string
+  /reload:
+    post:
+      operationId: reloadIndex
+      summary: Force rebuild index for a file
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+      responses:
+        "200":
+          description: Rebuilt
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas: {}
