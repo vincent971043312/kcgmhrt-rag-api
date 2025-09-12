@@ -33,6 +33,10 @@ paths:
     get:
       operationId: listFiles
       summary: List available documents
+      description: |
+        Use this before calling queryFile when the user has not specified a file.
+        Present the list to the user and ask them to choose one exact filename.
+        Do not guess the file; wait for the user to confirm.
       responses:
         "200":
           description: A list of filenames under docs/
@@ -46,6 +50,11 @@ paths:
     post:
       operationId: queryFile
       summary: Ask a question against a specific file
+      description: |
+        Requires an explicit `file` chosen from `GET /files`. If the user did not
+        specify a file, first call `listFiles`, show the options, and ask the user
+        to choose one exact filename. Do not guess. Answer with cited `sources`.
+        If the user speaks Chinese, reply in zh-TW.
       requestBody:
         required: true
         content:
@@ -56,7 +65,7 @@ paths:
               properties:
                 file:
                   type: string
-                  description: Filename under docs/
+                  description: Filename under docs/. Must be one of the values returned by GET /files.
                 question:
                   type: string
                   description: User question
