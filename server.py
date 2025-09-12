@@ -1,5 +1,6 @@
 import os
 import threading
+import re
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Depends, Header
@@ -48,6 +49,52 @@ def ensure_auth(authorization: Optional[str] = Header(None)):
         raise HTTPException(status_code=403, detail="Invalid token")
 
 
+# -------- Query augmentation helpers (improve recall for short/ambiguous queries) --------
+_PW_SYNONYMS = [
+    "配置密碼", "預設密碼", "系統密碼", "工程師密碼", "維護密碼", "管理者密碼",
+    "password", "default password", "configuration password", "service password",
+    "access code", "service code",
+]
+
+
+def _alpha_digit_variants(token: str) -> list[str]:
+    # Generate variants like C1 -> C 1 / C-1; V600 -> V 600 / V-600
+    m = re.fullmatch(r"([A-Za-z]+)(\d+)", token)
+    if not m:
+        return []
+    a, d = m.group(1), m.group(2)
+    base = [f"{a}{d}", f"{a.upper()}{d}", f"{a.capitalize()}{d}"]
+    return list({*base, f"{a} {d}", f"{a}-{d}", f"{a.upper()} {d}", f"{a.upper()}-{d}"})
+
+
+def _brand_hints(question: str) -> list[str]:
+    ql = question.lower()
+    hints: list[str] = []
+    # Common ventilator/model hints
+    if "c1" in ql and "hamilton" not in ql:
+        hints += ["Hamilton C1", "哈密頓 C1"]
+    if "v600" in ql and "drager" not in ql and "dräger" not in ql:
+        hints += ["Drager V600", "Dräger V600"]
+    if "v300" in ql and "evita" not in ql:
+        hints += ["Evita V300", "Dräger Evita V300"]
+    return hints
+
+
+def augment_question(q: str) -> str:
+    expansions: list[str] = []
+    ql = q.lower()
+    if ("密碼" in q) or ("password" in ql) or ("access code" in ql) or ("service code" in ql):
+        expansions += _PW_SYNONYMS
+    # Alpha-digit tokens variants
+    for tok in re.findall(r"[A-Za-z]+\d+", q):
+        expansions += _alpha_digit_variants(tok)
+    expansions += _brand_hints(q)
+    # Deduplicate while preserving order
+    seen = set()
+    uniq = [w for w in expansions if not (w in seen or seen.add(w))]
+    return q if not uniq else f"{q} \n{ ' '.join(uniq) }"
+
+
 @app.get("/health")
 def health():
     # Ensure API key exists to avoid confusing startup states
@@ -70,7 +117,12 @@ def query(req: QueryRequest, _: None = Depends(ensure_auth)):
         # Build or load the per-file vector DB
         vs = rag_impl.build_or_load_db_for_file(req.file)
 
-    retriever = vs.as_retriever(search_kwargs={"k": req.top_k or 3})
+    # Use MMR for diversity and fetch a larger pool for better recall
+    k = req.top_k or 3
+    retriever = vs.as_retriever(
+        search_type="mmr",
+        search_kwargs={"k": k, "fetch_k": max(20, k * 5)},
+    )
 
     qa = RetrievalQA.from_chain_type(
         llm=rag_impl._make_chat_llm(max_tokens=512),
@@ -79,7 +131,8 @@ def query(req: QueryRequest, _: None = Depends(ensure_auth)):
     )
 
     try:
-        result = qa.invoke({"query": req.question})
+        q1 = augment_question(req.question)
+        result = qa.invoke({"query": q1})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -90,6 +143,27 @@ def query(req: QueryRequest, _: None = Depends(ensure_auth)):
         src = str((d.metadata or {}).get("source") or "")
         if src and src not in srcs:
             srcs.append(src)
+
+    # Fallback: if no sources or empty answer, retry with bigger k
+    if (not answer or not answer.strip()) or (not srcs):
+        try:
+            retriever2 = vs.as_retriever(search_type="mmr", search_kwargs={"k": max(8, k), "fetch_k": 40})
+            qa2 = RetrievalQA.from_chain_type(
+                llm=rag_impl._make_chat_llm(max_tokens=512),
+                retriever=retriever2,
+                return_source_documents=True,
+            )
+            result2 = qa2.invoke({"query": q1})
+            answer2: str = result2.get("result", "")
+            srcs2: list[str] = []
+            for d in result2.get("source_documents", []) or []:
+                src = str((d.metadata or {}).get("source") or "")
+                if src and src not in srcs2:
+                    srcs2.append(src)
+            if answer2 and srcs2:
+                return QueryResponse(answer=answer2, sources=srcs2)
+        except Exception:
+            pass
 
     return QueryResponse(answer=answer, sources=srcs)
 
