@@ -49,7 +49,7 @@ app.add_middleware(
 class QueryRequest(BaseModel):
     file: str = Field(..., description="Filename under docs/ to query")
     question: str = Field(..., description="User question")
-    top_k: Optional[int] = Field(3, ge=1, le=10, description="Retriever top-k")
+    top_k: Optional[int] = Field(8, ge=1, le=10, description="Retriever top-k (default 8)")
 
 
 class QueryResponse(BaseModel):
@@ -152,10 +152,10 @@ def query(req: QueryRequest, _: None = Depends(ensure_auth)):
         vs = rag_impl.build_or_load_db_for_file(req.file)
 
     # Use MMR for diversity and fetch a larger pool for better recall
-    k = req.top_k or 3
+    k = req.top_k or 8
     retriever = vs.as_retriever(
         search_type="mmr",
-        search_kwargs={"k": k, "fetch_k": max(20, k * 5)},
+        search_kwargs={"k": k, "fetch_k": max(40, k * 6)},
     )
 
     # Multi-query expansion retriever (if available)
@@ -200,7 +200,10 @@ def query(req: QueryRequest, _: None = Depends(ensure_auth)):
     # Fallback: if no sources or empty answer, retry with bigger k
     if (not answer or not answer.strip()) or (not srcs):
         try:
-            retriever2 = vs.as_retriever(search_type="mmr", search_kwargs={"k": max(8, k), "fetch_k": 40})
+            retriever2 = vs.as_retriever(
+                search_type="mmr",
+                search_kwargs={"k": max(12, k), "fetch_k": 80},
+            )
             qa2 = RetrievalQA.from_chain_type(
                 llm=rag_impl._make_chat_llm(max_tokens=512),
                 retriever=retriever2,

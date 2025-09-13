@@ -73,7 +73,7 @@ paths:
                   type: integer
                   minimum: 1
                   maximum: 10
-                  default: 3
+                  default: 8
             examples:
               askExample:
                 summary: Simple question
