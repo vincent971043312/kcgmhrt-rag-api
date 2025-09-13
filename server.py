@@ -10,6 +10,12 @@ from pydantic import BaseModel, Field
 # Reuse the existing RAG implementation
 import rag as rag_impl
 from langchain.chains import RetrievalQA
+try:
+    from langchain.retrievers.multi_query import MultiQueryRetriever
+    from langchain.prompts import PromptTemplate
+except Exception:  # pragma: no cover
+    MultiQueryRetriever = None  # type: ignore
+    PromptTemplate = None  # type: ignore
 
 
 app = FastAPI(
@@ -50,11 +56,19 @@ def ensure_auth(authorization: Optional[str] = Header(None)):
 
 
 # -------- Query augmentation helpers (improve recall for short/ambiguous queries) --------
-_PW_SYNONYMS = [
-    "配置密碼", "預設密碼", "系統密碼", "工程師密碼", "維護密碼", "管理者密碼",
-    "password", "default password", "configuration password", "service password",
-    "access code", "service code",
-]
+def _pw_synonyms() -> list[str]:
+    env = os.getenv("PW_SYNONYMS")
+    if env:
+        parts = [p.strip() for p in env.split("|") if p.strip()]
+    else:
+        parts = [
+            "配置密碼", "預設密碼", "初始密碼", "系統密碼", "工程師密碼", "維護密碼", "管理者密碼",
+            "Biomed code", "service code", "access code",
+            "password", "default password", "configuration password", "service password",
+        ]
+    # dedupe
+    seen = set()
+    return [w for w in parts if not (w in seen or seen.add(w))]
 
 
 def _alpha_digit_variants(token: str) -> list[str]:
@@ -83,8 +97,8 @@ def _brand_hints(question: str) -> list[str]:
 def augment_question(q: str) -> str:
     expansions: list[str] = []
     ql = q.lower()
-    if ("密碼" in q) or ("password" in ql) or ("access code" in ql) or ("service code" in ql):
-        expansions += _PW_SYNONYMS
+    if ("密碼" in q) or ("password" in ql) or ("access code" in ql) or ("service code" in ql) or ("biomed" in ql):
+        expansions += _pw_synonyms()
     # Alpha-digit tokens variants
     for tok in re.findall(r"[A-Za-z]+\d+", q):
         expansions += _alpha_digit_variants(tok)
@@ -123,6 +137,25 @@ def query(req: QueryRequest, _: None = Depends(ensure_auth)):
         search_type="mmr",
         search_kwargs={"k": k, "fetch_k": max(20, k * 5)},
     )
+
+    # Multi-query expansion retriever (if available)
+    if MultiQueryRetriever and PromptTemplate:
+        try:
+            mqr_prompt = PromptTemplate(
+                input_variables=["question"],
+                template=(
+                    "你是一位檢索助理，請根據使用者問題產生 4 個等義或相近的檢索查詢（中英混合皆可），"
+                    "特別擴充『密碼/配置密碼/初始密碼/工程模式/維護模式/Biomed code/Service code/Access code』，"
+                    "並加入型號變體（如 C1/C 1/C-1、V600/V 600/V-600，附上品牌關鍵字）。請每行一個短查詢，不要解釋。\n\n問題：{question}"
+                ),
+            )
+            retriever = MultiQueryRetriever.from_llm(
+                llm=rag_impl._make_chat_llm(max_tokens=256),
+                retriever=retriever,
+                prompt=mqr_prompt,
+            )
+        except Exception:
+            pass
 
     qa = RetrievalQA.from_chain_type(
         llm=rag_impl._make_chat_llm(max_tokens=512),
