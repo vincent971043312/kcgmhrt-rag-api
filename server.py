@@ -4,6 +4,7 @@ import re
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -23,6 +24,25 @@ app = FastAPI(
     description="Simple per-file RAG API powered by LangChain + Chroma.",
     version="1.0.0",
     openapi_version="3.1.0",
+)
+
+# Enable CORS for your website front-end (set CORS_ORIGINS env)
+_origins_env = os.getenv("CORS_ORIGINS", "").strip()
+_allow_all = os.getenv("ALLOW_ALL_CORS", "").lower() in {"1", "true", "yes", "*"}
+if _allow_all:
+    # Wildcard origins cannot be combined with allow_credentials=True per CORS spec
+    _allow_origins = ["*"]
+    _allow_credentials = False
+else:
+    _allow_origins = [o.strip() for o in _origins_env.split(",") if o.strip()]
+    _allow_credentials = True
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allow_origins,
+    allow_credentials=_allow_credentials,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
