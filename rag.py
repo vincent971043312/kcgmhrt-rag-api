@@ -42,6 +42,20 @@ DB_DIR = os.getenv("DB_DIR", "db")                # 向量資料庫路徑
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "my_rag_db")
 PDF_LOADER = os.getenv("PDF_LOADER", "auto").lower()  # auto | pypdf | pymupdf | pdfplumber | unstructured
 PDF_MIN_CHARS = int(os.getenv("PDF_MIN_CHARS", "50"))  # 視為空白的最小文字長度
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1000"))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "150"))
+
+def _chunk_separators():
+    # 可經由環境變數 CHUNK_SEPARATORS 以 '|' 分隔覆寫；預設對中文技術文件較友善
+    env = os.getenv("CHUNK_SEPARATORS")
+    if env:
+        return [p for p in env.split("|")]
+    return [
+        "\n\n", "\n",
+        "。", "：", "；", "！", "？",
+        "—", "-", "•", "*", "·", "‧",
+        "，", "、", ",", " ",
+    ]
 
 # ========= 驗證金鑰 =========
 if not os.getenv("OPENAI_API_KEY"):
@@ -329,9 +343,9 @@ def build_or_load_db_for_file(file: str, force: bool = False) -> Chroma:
         docs.append(Document(page_content=d.page_content, metadata=meta))
 
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=50,
-        separators=["\n\n", "。", "！", "？", "；", "\n", "，", "、", " "]
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+        separators=_chunk_separators(),
     )
     docs = splitter.split_documents(docs)
 
