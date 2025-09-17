@@ -14,6 +14,10 @@ type QueryPayload = {
   category?: string;
   file?: string;
 };
+type QueryResp = {
+  answer: string;
+  sources?: string[];
+};
 
 const containerStyle: CSSProperties = {
   maxWidth: 900,
