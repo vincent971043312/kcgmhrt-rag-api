@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+cookies.txt
+webapp/node_modules/
+webapp/.next/
