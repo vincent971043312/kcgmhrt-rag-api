@@ -4,3 +4,4 @@ cookies.txt
 webapp/node_modules/
 webapp/.next/
 .vercel
+.vscode/

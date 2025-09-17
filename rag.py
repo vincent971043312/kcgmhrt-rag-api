@@ -41,6 +41,12 @@ DOCS_DIR = os.getenv("DOCS_DIR", "docs")          # 放文件的資料夾
 DB_DIR = os.getenv("DB_DIR", "db")                # 向量資料庫路徑
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "my_rag_db")
 
+CATEGORY_LABELS = {
+    "manuals": "操作規範",
+    "meetings": "會議紀錄",
+}
+CATEGORY_KEYS = list(CATEGORY_LABELS.keys())
+
 # ========= 驗證金鑰 =========
 if not os.getenv("OPENAI_API_KEY"):
     raise RuntimeError(
@@ -68,6 +74,29 @@ def _iter_doc_paths():
 
 def _supported_files():
     return sorted(_iter_doc_paths())
+
+
+def _iter_doc_paths_from_category(category: str) -> list[str]:
+    prefix = category.replace("\\", "/").strip("/")
+    if not prefix:
+        return []
+    prefixed = []
+    for rel_path in _iter_doc_paths():
+        if rel_path.startswith(prefix + "/"):
+            prefixed.append(rel_path)
+    return prefixed
+
+
+def available_categories() -> list[tuple[str, int]]:
+    results: list[tuple[str, int]] = []
+    for key in CATEGORY_KEYS:
+        files = _iter_doc_paths_from_category(key)
+        results.append((key, len(files)))
+    return results
+
+
+def category_label(category: str) -> str:
+    return CATEGORY_LABELS.get(category, category)
 
 
 def _compute_manifest(files):
@@ -263,7 +292,7 @@ def build_or_load_db_for_file(file: str, force: bool = False) -> Chroma:
 
     vectorstore = Chroma.from_documents(
         documents=docs,
-        embedding=embeddings,  # from_documents 使用 embedding
+        embedding=embeddings,
         collection_name=collection,
         persist_directory=subdir,
     )
@@ -275,6 +304,98 @@ def build_or_load_db_for_file(file: str, force: bool = False) -> Chroma:
         pass
 
     print(f"✅ {file} 的資料庫建立完成")
+    return vectorstore
+
+
+def build_or_load_db_for_category(category: str, force: bool = False) -> Chroma:
+    key = category.replace("\\", "/").strip("/")
+    if not key:
+        raise ValueError("分類名稱不可為空")
+
+    files = _iter_doc_paths_from_category(key)
+    if not files:
+        raise ValueError(f"分類 {category} 尚無可用文件")
+
+    embeddings = OpenAIEmbeddings(
+        model="text-embedding-3-small",
+        chunk_size=128,
+    )
+
+    safe = _safe_stem(f"cat-{key}")
+    subdir = os.path.join(DB_DIR, safe)
+    os.makedirs(subdir, exist_ok=True)
+    try:
+        os.chmod(subdir, 0o755)
+    except Exception:
+        pass
+
+    manifest_path = os.path.join(subdir, "manifest.json")
+    collection = f"{COLLECTION_NAME}_{safe}"
+    new_manifest = _compute_manifest(files)
+
+    if force:
+        print(f"♻️ 重新建立分類 {category} 的資料庫...")
+        shutil.rmtree(subdir, ignore_errors=True)
+        os.makedirs(subdir, exist_ok=True)
+    elif any(os.scandir(subdir)):
+        old_manifest = []
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    old_manifest = json.load(f)
+            except Exception:
+                old_manifest = []
+        if _manifests_equal(old_manifest, new_manifest):
+            print(f"🔄 載入既有分類資料庫（{category}）...")
+            return Chroma(
+                collection_name=collection,
+                embedding_function=embeddings,
+                persist_directory=subdir,
+            )
+        else:
+            print(f"♻️ 偵測到分類 {category} 有變更，重新建立資料庫...")
+            shutil.rmtree(subdir, ignore_errors=True)
+            os.makedirs(subdir, exist_ok=True)
+
+    print(f"📚 建立分類資料庫（{category}）...")
+    all_docs = []
+    for rel_path in files:
+        abs_path = os.path.join(DOCS_DIR, *rel_path.split("/"))
+        lower = rel_path.lower()
+        if lower.endswith('.txt'):
+            loader = TextLoader(abs_path, encoding='utf-8')
+        elif lower.endswith('.pdf'):
+            loader = PyPDFLoader(abs_path)
+        elif lower.endswith('.md'):
+            loader = UnstructuredMarkdownLoader(abs_path)
+        else:
+            continue
+        for d in loader.load():
+            meta = dict(d.metadata or {})
+            meta["source"] = rel_path
+            all_docs.append(Document(page_content=d.page_content, metadata=meta))
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=50,
+        separators=["\n\n", "。", "！", "？", "；", "\n", "，", "、", " "],
+    )
+    all_docs = splitter.split_documents(all_docs)
+
+    vectorstore = Chroma.from_documents(
+        documents=all_docs,
+        embedding=embeddings,
+        collection_name=collection,
+        persist_directory=subdir,
+    )
+
+    try:
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(new_manifest, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+    print(f"✅ {category} 分類資料庫建立完成")
     return vectorstore
 
 

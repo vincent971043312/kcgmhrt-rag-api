@@ -9,7 +9,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from logging.handlers import RotatingFileHandler
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal, cast
 
 from fastapi import FastAPI, HTTPException, Depends, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,7 +48,8 @@ app.add_middleware(
 
 
 class QueryRequest(BaseModel):
-    file: str = Field(..., description="Filename under docs/ to query")
+    category: Optional[str] = Field(None, description="Category under docs/ (e.g. manuals)")
+    file: Optional[str] = Field(None, description="Filename under docs/ to query")
     question: str = Field(..., description="User question")
     top_k: Optional[int] = Field(3, ge=1, le=10, description="Retriever top-k")
     include_snippets: Optional[bool] = Field(False, description="Return highlighted snippets")
@@ -66,7 +67,8 @@ class QueryResponse(BaseModel):
 
 
 class ReloadRequest(BaseModel):
-    file: str
+    category: Optional[str] = None
+    file: Optional[str] = None
 
 
 lock = threading.Lock()
@@ -127,6 +129,8 @@ SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "rag_session")
 SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "true").lower() in {"1", "true", "yes"}
 SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "none").lower()
 SERVICE_BEARER_TOKEN = os.getenv("AUTH_TOKEN")
+
+SameSiteValue = Literal["lax", "strict", "none"]
 
 
 def _hash_password(password: str, *, iterations: Optional[int] = None, salt: Optional[str] = None) -> str:
@@ -263,6 +267,12 @@ class LogoutResponse(BaseModel):
     status: str
 
 
+class CategoryResponse(BaseModel):
+    key: str
+    label: str
+    total: int
+
+
 @dataclass
 class Requester:
     username: str
@@ -301,6 +311,7 @@ def login(req: LoginRequest, request: Request, response: Response):
     max_age = ttl * 60 if ttl > 0 else None
     exp_cookie = s.expires_at.replace(tzinfo=timezone.utc) if max_age else None
     same = SESSION_COOKIE_SAMESITE if SESSION_COOKIE_SAMESITE in {"none", "lax", "strict"} else "none"
+    same_literal = cast(SameSiteValue, same)
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=s.session_id,
@@ -308,7 +319,7 @@ def login(req: LoginRequest, request: Request, response: Response):
         expires=exp_cookie,
         httponly=True,
         secure=SESSION_COOKIE_SECURE,
-        samesite=same,
+        samesite=same_literal,
         path="/",
     )
     log_audit("login", request=request, success=True, username=req.username, details={"ttl": ttl})
@@ -341,23 +352,90 @@ def me(request: Request, requester: Requester = Depends(require_user)):
     return payload
 
 
+@app.get("/categories", response_model=List[CategoryResponse])
+def categories(request: Request, requester: Requester = Depends(require_user)):
+    cats = rag_impl.available_categories()
+    responses = [
+        CategoryResponse(key=key, label=rag_impl.category_label(key), total=count)
+        for key, count in cats
+    ]
+    log_audit(
+        "list_categories",
+        request=request,
+        success=True,
+        username=requester.username,
+        details={"count": len(responses)},
+    )
+    return responses
+
+
 @app.get("/files", response_model=List[str])
-def list_files(request: Request, requester: Requester = Depends(require_user)):
+def list_files(request: Request, requester: Requester = Depends(require_user), category: Optional[str] = None):
     files = rag_impl._supported_files()
-    log_audit("list_files", request=request, success=True, username=requester.username, details={"count": len(files)})
+    if category:
+        norm = category.replace("\\", "/").strip("/")
+        if norm:
+            files = [f for f in files if f.startswith(f"{norm}/")]
+    log_audit(
+        "list_files",
+        request=request,
+        success=True,
+        username=requester.username,
+        details={"count": len(files), "category": category or "-"},
+    )
     return files
 
 
 @app.post("/query", response_model=QueryResponse)
 def query(req: QueryRequest, request: Request, requester: Requester = Depends(require_user)):
-    files = rag_impl._supported_files()
-    if req.file not in files:
-        log_audit("query", request=request, success=False, username=requester.username, details={"file": req.file, "reason": "not_found"})
-        raise HTTPException(status_code=404, detail=f"File not found or unsupported: {req.file}")
+    category = (req.category or "").replace("\\", "/").strip("/")
+    file = (req.file or "").replace("\\", "/").strip()
 
-    with lock:
-        # Build or load the per-file vector DB
-        vs = rag_impl.build_or_load_db_for_file(req.file)
+    if not file and not category:
+        raise HTTPException(status_code=400, detail="請選擇分類或檔案")
+
+    base_details: Dict[str, Any] = {
+        "top_k": req.top_k,
+        "include_snippets": bool(req.include_snippets),
+        "question": _clip(req.question),
+        "via": requester.via,
+    }
+
+    try:
+        with lock:
+            if file:
+                files = rag_impl._supported_files()
+                if file not in files:
+                    log_audit(
+                        "query",
+                        request=request,
+                        success=False,
+                        username=requester.username,
+                        details={"file": file, "category": category or "-", "reason": "not_found"},
+                    )
+                    raise HTTPException(status_code=404, detail=f"File not found or unsupported: {file}")
+                vs = rag_impl.build_or_load_db_for_file(file)
+                base_details["file"] = file
+                if not category and "/" in file:
+                    category = file.split("/", 1)[0]
+            else:
+                available = {key for key, _ in rag_impl.available_categories()}
+                if category not in available:
+                    log_audit(
+                        "query",
+                        request=request,
+                        success=False,
+                        username=requester.username,
+                        details={"category": category, "reason": "category_not_found"},
+                    )
+                    raise HTTPException(status_code=404, detail=f"分類不存在：{category}")
+                vs = rag_impl.build_or_load_db_for_category(category)
+                base_details["category"] = category
+    except ValueError as e:
+        err_details = dict(base_details)
+        err_details["error"] = str(e)
+        log_audit("query", request=request, success=False, username=requester.username, details=err_details)
+        raise HTTPException(status_code=404, detail=str(e))
 
     retriever = vs.as_retriever(search_kwargs={"k": req.top_k or 3})
 
@@ -370,7 +448,9 @@ def query(req: QueryRequest, request: Request, requester: Requester = Depends(re
     try:
         result = qa.invoke({"query": req.question})
     except Exception as e:
-        log_audit("query", request=request, success=False, username=requester.username, details={"file": req.file, "error": str(e)})
+        err_details = dict(base_details)
+        err_details["error"] = str(e)
+        log_audit("query", request=request, success=False, username=requester.username, details=err_details)
         raise HTTPException(status_code=500, detail=str(e))
 
     docs = result.get("source_documents", []) or []
@@ -396,32 +476,68 @@ def query(req: QueryRequest, request: Request, requester: Requester = Depends(re
             snippets.append(SourceSnippet(source=src, snippet=clean))
             seen.add(src)
 
+    success_details = dict(base_details)
+    success_details["sources"] = len(srcs)
+    success_details["snippets"] = len(snippets) if req.include_snippets else 0
     log_audit(
         "query",
         request=request,
         success=True,
         username=requester.username,
-        details={
-            "file": req.file,
-            "k": req.top_k,
-            "q": _clip(req.question),
-            "sources": len(srcs),
-            "snippets": len(snippets) if req.include_snippets else 0,
-        },
+        details=success_details,
     )
     return QueryResponse(answer=answer, sources=srcs, snippets=snippets or None)
 
 
 @app.post("/reload")
-def reload_file(req: ReloadRequest, request: Request, requester: Requester = Depends(require_user)):
-    files = rag_impl._supported_files()
-    if req.file not in files:
-        log_audit("reload", request=request, success=False, username=requester.username, details={"file": req.file, "reason": "not_found"})
-        raise HTTPException(status_code=404, detail=f"File not found or unsupported: {req.file}")
-    with lock:
-        rag_impl.build_or_load_db_for_file(req.file, force=True)
-    log_audit("reload", request=request, success=True, username=requester.username, details={"file": req.file})
-    return {"status": "reloaded", "file": req.file}
+def reload_resource(req: ReloadRequest, request: Request, requester: Requester = Depends(require_user)):
+    if req.file:
+        file = req.file.replace("\\", "/").strip()
+        files = rag_impl._supported_files()
+        if file not in files:
+            log_audit(
+                "reload",
+                request=request,
+                success=False,
+                username=requester.username,
+                details={"file": file, "reason": "not_found"},
+            )
+            raise HTTPException(status_code=404, detail=f"File not found or unsupported: {file}")
+        with lock:
+            rag_impl.build_or_load_db_for_file(file, force=True)
+        log_audit(
+            "reload",
+            request=request,
+            success=True,
+            username=requester.username,
+            details={"file": file},
+        )
+        return {"status": "reloaded", "file": file}
+
+    if req.category:
+        category = req.category.replace("\\", "/").strip("/")
+        available = {key for key, _ in rag_impl.available_categories()}
+        if category not in available:
+            log_audit(
+                "reload",
+                request=request,
+                success=False,
+                username=requester.username,
+                details={"category": category, "reason": "category_not_found"},
+            )
+            raise HTTPException(status_code=404, detail=f"分類不存在：{category}")
+        with lock:
+            rag_impl.build_or_load_db_for_category(category, force=True)
+        log_audit(
+            "reload",
+            request=request,
+            success=True,
+            username=requester.username,
+            details={"category": category},
+        )
+        return {"status": "reloaded", "category": category}
+
+    raise HTTPException(status_code=400, detail="請指定分類或檔案進行重建")
 
 
 @app.get("/doc/{path:path}")
