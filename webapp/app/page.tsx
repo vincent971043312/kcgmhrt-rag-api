@@ -280,8 +280,10 @@ export default function Page() {
   return (
     <div style={containerStyle}>
       <header style={{ textAlign: "center", marginBottom: 24 }}>
-        <h1 style={{ marginBottom: 4 }}>RAG Files</h1>
-        <p style={{ color: "#64748b", fontSize: 14 }}>查詢 docs/ 中的文件，並附來源</p>
+        <h1 style={{ marginBottom: 4 }}>高雄長庚呼吸治療科 AI 查詢網站</h1>
+        <p style={{ color: "#64748b", fontSize: 14 }}>
+          內部臨床文件安全檢索，支援來源追蹤與原始檔下載
+        </p>
       </header>
 
       {session ? (
