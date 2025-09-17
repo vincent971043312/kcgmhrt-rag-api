@@ -1,3 +1,4 @@
+import mimetypes
 import os
 import re
 import json
@@ -12,6 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Depends, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 # Reuse the existing RAG implementation
@@ -420,6 +422,35 @@ def reload_file(req: ReloadRequest, request: Request, requester: Requester = Dep
         rag_impl.build_or_load_db_for_file(req.file, force=True)
     log_audit("reload", request=request, success=True, username=requester.username, details={"file": req.file})
     return {"status": "reloaded", "file": req.file}
+
+
+@app.get("/doc/{filename}")
+def get_document(filename: str, request: Request, requester: Requester = Depends(require_user)):
+    files = rag_impl._supported_files()
+    if filename not in files:
+        log_audit(
+            "doc",
+            request=request,
+            success=False,
+            username=requester.username,
+            details={"file": filename, "reason": "not_found"},
+        )
+        raise HTTPException(status_code=404, detail="File not found or unsupported")
+
+    doc_path = os.path.join(rag_impl.DOCS_DIR, filename)
+    if not os.path.exists(doc_path):
+        log_audit(
+            "doc",
+            request=request,
+            success=False,
+            username=requester.username,
+            details={"file": filename, "reason": "missing_on_disk"},
+        )
+        raise HTTPException(status_code=404, detail="Document not found on disk")
+
+    media_type, _ = mimetypes.guess_type(doc_path)
+    log_audit("doc", request=request, success=True, username=requester.username, details={"file": filename})
+    return FileResponse(doc_path, media_type=media_type or "application/octet-stream", filename=filename)
 
 
 # Convenience root

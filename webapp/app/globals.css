@@ -54,3 +54,14 @@ select:focus {
   padding: 0 2px;
   border-radius: 4px;
 }
+
+.source-link {
+  font-size: 13px;
+  color: #1d4ed8;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.source-link:hover {
+  text-decoration: underline;
+}

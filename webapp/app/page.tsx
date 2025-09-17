@@ -275,6 +275,8 @@ export default function Page() {
     );
   }
 
+  const docUrl = (src: string) => `/api/doc/${encodeURIComponent(src)}`;
+
   return (
     <div style={containerStyle}>
       <header style={{ textAlign: "center", marginBottom: 24 }}>
@@ -343,16 +345,33 @@ export default function Page() {
             {snippets.length > 0 ? (
               <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
                 {snippets.map((item, idx) => (
-                  <article key={`${item.source}-${idx}`} style={{ padding: 12, borderRadius: 10, background: "#f1f5f9" }}>
-                    <header style={{ fontWeight: 600, marginBottom: 8 }}>{item.source}</header>
-                    <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{renderSnippet(item.snippet)}</p>
+                  <article
+                    key={`${item.source}-${idx}`}
+                    style={{ padding: 14, borderRadius: 12, background: "rgba(15, 23, 42, 0.04)", border: "1px solid rgba(148, 163, 184, 0.35)" }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                      <span style={{ fontWeight: 600 }}>{item.source}</span>
+                      <a
+                        href={docUrl(item.source)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="source-link"
+                      >
+                        開啟原始檔
+                      </a>
+                    </div>
+                    <p style={{ margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{renderSnippet(item.snippet)}</p>
                   </article>
                 ))}
               </div>
             ) : (
-              <ul style={{ marginTop: 12, paddingLeft: 20 }}>
+              <ul style={{ marginTop: 12, paddingLeft: 20, display: "grid", gap: 6 }}>
                 {sources.map((src) => (
-                  <li key={src}>{src}</li>
+                  <li key={src}>
+                    <a href={docUrl(src)} target="_blank" rel="noopener noreferrer" className="source-link">
+                      {src}
+                    </a>
+                  </li>
                 ))}
               </ul>
             )}
