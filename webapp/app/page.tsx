@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 
@@ -35,6 +36,13 @@ const boxStyle: CSSProperties = {
 };
 
 const labelStyle: CSSProperties = { display: "block", fontWeight: 600, marginBottom: 6 };
+const logoStyle: CSSProperties = {
+  display: "block",
+  margin: "0 auto 12px",
+  maxHeight: 80,
+  width: "auto",
+  height: "auto",
+};
 
 function Box({ children }: { children: ReactNode }) {
   return <section style={boxStyle}>{children}</section>;
@@ -350,6 +358,14 @@ export default function Page() {
   return (
     <div style={containerStyle}>
       <header style={{ textAlign: "center", marginBottom: 24 }}>
+        <Image
+          src="/kcgmh-logo.svg"
+          alt="高雄長庚紀念醫院標誌"
+          width={379}
+          height={56}
+          priority
+          style={logoStyle}
+        />
         <h1 style={{ marginBottom: 4 }}>高雄長庚呼吸治療科 AI 查詢網站</h1>
         <p style={{ color: "#64748b", fontSize: 14 }}>
           內部臨床文件安全檢索，支援來源追蹤與原始檔下載
