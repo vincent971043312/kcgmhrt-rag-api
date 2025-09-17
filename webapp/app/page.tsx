@@ -36,8 +36,6 @@ const boxStyle: CSSProperties = {
 
 const labelStyle: CSSProperties = { display: "block", fontWeight: 600, marginBottom: 6 };
 
-const CATEGORY_ONLY_VALUE = "__category__";
-
 function Box({ children }: { children: ReactNode }) {
   return <section style={boxStyle}>{children}</section>;
 }
@@ -69,7 +67,7 @@ export default function Page() {
   const [categories, setCategories] = useState<CategoryInfo[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>("");
   const [files, setFiles] = useState<string[]>([]);
-  const [selectedFile, setSelectedFile] = useState<string>(CATEGORY_ONLY_VALUE);
+  const [selectedFile, setSelectedFile] = useState<string>("");
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [sources, setSources] = useState<string[]>([]);
@@ -87,7 +85,7 @@ export default function Page() {
     setCategories([]);
     setSelectedCategory("");
     setFiles([]);
-    setSelectedFile(CATEGORY_ONLY_VALUE);
+    setSelectedFile("");
     setQuestion("");
     setAnswer("");
     setSources([]);
@@ -98,10 +96,7 @@ export default function Page() {
   }
 
   const canAsk = Boolean(
-    session &&
-      question.trim() &&
-      (selectedFile === CATEGORY_ONLY_VALUE || selectedFile.length > 0) &&
-      selectedCategory
+    session && question.trim() && selectedFile && selectedCategory
   );
 
   async function fetchSession() {
@@ -139,7 +134,7 @@ export default function Page() {
       } else {
         setSelectedCategory("");
         setFiles([]);
-        setSelectedFile(CATEGORY_ONLY_VALUE);
+        setSelectedFile("");
       }
     } catch (e) {
       pushToast(`讀取分類失敗：${safeMessage(e)}`, "err");
@@ -149,7 +144,7 @@ export default function Page() {
   async function fetchFiles(category: string, resetSelection = false) {
     if (!category) {
       setFiles([]);
-      setSelectedFile(CATEGORY_ONLY_VALUE);
+      setSelectedFile("");
       return;
     }
     try {
@@ -163,12 +158,10 @@ export default function Page() {
       const list = (await r.json()) as string[];
       const normalized = list?.map((item) => item.replace(/\\/g, "/")) ?? [];
       setFiles(normalized);
-      if (resetSelection) {
-        setSelectedFile(CATEGORY_ONLY_VALUE);
-      } else if (normalized.length === 0) {
-        setSelectedFile(CATEGORY_ONLY_VALUE);
-      } else if (!normalized.includes(selectedFile)) {
-        setSelectedFile(CATEGORY_ONLY_VALUE);
+      if (normalized.length === 0) {
+        setSelectedFile("");
+      } else if (resetSelection || !normalized.includes(selectedFile)) {
+        setSelectedFile(normalized[0]);
       }
     } catch (e) {
       pushToast(`載入檔案清單失敗：${safeMessage(e)}`, "err");
@@ -191,10 +184,10 @@ export default function Page() {
     setReloading(true);
     try {
       const payload: { category?: string; file?: string } = {};
-      if (selectedFile === CATEGORY_ONLY_VALUE) {
-        payload.category = selectedCategory;
-      } else {
+      if (selectedFile) {
         payload.file = selectedFile;
+      } else {
+        payload.category = selectedCategory;
       }
       const r = await fetch("/api/reload", {
         method: "POST",
@@ -222,7 +215,7 @@ export default function Page() {
   }
 
   async function doAsk() {
-    if (!canAsk || !selectedCategory) return;
+    if (!canAsk || !selectedCategory || !selectedFile) return;
     setLoading(true);
     setAnswer("(查詢中...)");
     setSources([]);
@@ -232,11 +225,7 @@ export default function Page() {
         top_k: 8,
         include_snippets: false,
       };
-      if (selectedFile === CATEGORY_ONLY_VALUE) {
-        payload.category = selectedCategory;
-      } else {
-        payload.file = selectedFile;
-      }
+      payload.file = selectedFile;
       const r = await fetch("/api/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -341,7 +330,7 @@ export default function Page() {
       setCategories([]);
       setSelectedCategory("");
       setFiles([]);
-      setSelectedFile(CATEGORY_ONLY_VALUE);
+      setSelectedFile("");
       setQuestion("");
       setAnswer("");
       setSources([]);
@@ -412,28 +401,29 @@ export default function Page() {
               style={{ width: "100%", padding: 8 }}
               disabled={!selectedCategory}
             >
-              {selectedCategory && (
-                <option value={CATEGORY_ONLY_VALUE}>
-                  {currentCategoryLabel ? `${currentCategoryLabel}（整個分類）` : "整個分類"}
+              {files.length === 0 ? (
+                <option value="">
+                  {selectedCategory ? "此分類目前沒有檔案" : "請先選擇分類"}
                 </option>
+              ) : (
+                files.map((f) => (
+                  <option key={f} value={f}>
+                    {basename(f)}
+                  </option>
+                ))
               )}
-              {files.map((f) => (
-                <option key={f} value={f}>
-                  {basename(f)}
-                </option>
-              ))}
             </select>
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <button onClick={() => fetchFiles(selectedCategory, false)} disabled={!selectedCategory}>
                 重新載入清單
               </button>
-              <button onClick={doReload} disabled={!selectedCategory || reloading}>
-                {reloading ? "重建中..." : "重建索引"}
+              <button onClick={doReload} disabled={!selectedFile || reloading}>
+                {reloading ? "重建中..." : "重建檔案索引"}
               </button>
             </div>
             <p style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
               {selectedCategory
-                ? `目前分類共有 ${currentCategoryTotal} 份文件，可選擇整個分類或特定文件進行查詢。`
+                ? `目前分類共有 ${currentCategoryTotal} 份文件，請選擇欲查詢的檔案。`
                 : "請先選擇分類。"}
             </p>
 
