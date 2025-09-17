@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 
-type QueryResp = { answer: string; sources: string[] };
+type SourceSnippet = { source: string; snippet: string };
+type QueryResp = { answer: string; sources: string[]; snippets?: SourceSnippet[] };
 type SessionInfo = { username: string; expires_at?: string; via?: string };
 type Toast = { text: string; kind: "ok" | "err" } | null;
 
@@ -58,6 +59,7 @@ export default function Page() {
   const [toast, setToast] = useState<Toast>(null);
   const [loading, setLoading] = useState(false);
   const [reloading, setReloading] = useState(false);
+  const [snippets, setSnippets] = useState<SourceSnippet[]>([]);
 
   function pushToast(text: string, kind: "ok" | "err") {
     setToast({ text, kind });
@@ -71,6 +73,7 @@ export default function Page() {
     setQuestion("");
     setAnswer("");
     setSources([]);
+    setSnippets([]);
     setLoading(false);
     setReloading(false);
     setLogoutLoading(false);
@@ -159,11 +162,12 @@ export default function Page() {
     setLoading(true);
     setAnswer("(查詢中...)");
     setSources([]);
+    setSnippets([]);
     try {
       const r = await fetch("/api/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ file, question, top_k: 8 }),
+        body: JSON.stringify({ file, question, top_k: 8, include_snippets: true }),
       });
       if (r.status === 401) {
         handleUnauthorized("登入已過期，查詢未送出");
@@ -174,6 +178,7 @@ export default function Page() {
       const data = (await r.json()) as QueryResp;
       setAnswer(data?.answer || "(無回答)");
       setSources(Array.isArray(data?.sources) ? data.sources : []);
+      setSnippets(Array.isArray(data?.snippets) ? data.snippets : []);
     } catch (e) {
       setAnswer(`查詢失敗：${safeMessage(e)}`);
     } finally {
@@ -237,7 +242,37 @@ export default function Page() {
       setQuestion("");
       setAnswer("");
       setSources([]);
+      setSnippets([]);
     }
+  }
+
+  const highlightTerms = useMemo(() => {
+    const raw = question.toLowerCase();
+    return Array.from(
+      new Set(
+        raw
+          .split(/[\s,，。.!?？:：;；()/\\-]+/g)
+          .map((w) => w.trim())
+          .filter((w) => w.length > 1)
+      )
+    );
+  }, [question]);
+
+  function renderSnippet(text: string) {
+    if (!text) return text;
+    if (!highlightTerms.length) return text;
+    const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(`(${highlightTerms.map(escape).join("|")})`, "gi");
+    const parts = text.split(regex);
+    return parts.map((part, idx) =>
+      idx % 2 === 1 ? (
+        <mark key={`${part}-${idx}`} className="highlight-term">
+          {part}
+        </mark>
+      ) : (
+        <span key={`${part}-${idx}`}>{part}</span>
+      )
+    );
   }
 
   return (
@@ -301,10 +336,26 @@ export default function Page() {
           <Box>
             <h2 style={{ margin: 0, fontSize: 18 }}>Answer</h2>
             <p style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>{answer || "(尚未查詢)"}</p>
-            <h3 style={{ marginTop: 16, fontSize: 16 }}>Sources</h3>
-            <pre style={{ whiteSpace: "pre-wrap", background: "#f8fafc", padding: 12, borderRadius: 8 }}>
-              {JSON.stringify(sources || [], null, 2)}
-            </pre>
+          </Box>
+
+          <Box>
+            <h3 style={{ margin: 0, fontSize: 16 }}>Sources</h3>
+            {snippets.length > 0 ? (
+              <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+                {snippets.map((item, idx) => (
+                  <article key={`${item.source}-${idx}`} style={{ padding: 12, borderRadius: 10, background: "#f1f5f9" }}>
+                    <header style={{ fontWeight: 600, marginBottom: 8 }}>{item.source}</header>
+                    <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{renderSnippet(item.snippet)}</p>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <ul style={{ marginTop: 12, paddingLeft: 20 }}>
+                {sources.map((src) => (
+                  <li key={src}>{src}</li>
+                ))}
+              </ul>
+            )}
           </Box>
         </>
       ) : (

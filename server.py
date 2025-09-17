@@ -49,11 +49,18 @@ class QueryRequest(BaseModel):
     file: str = Field(..., description="Filename under docs/ to query")
     question: str = Field(..., description="User question")
     top_k: Optional[int] = Field(3, ge=1, le=10, description="Retriever top-k")
+    include_snippets: Optional[bool] = Field(False, description="Return highlighted snippets")
+
+
+class SourceSnippet(BaseModel):
+    source: str
+    snippet: str
 
 
 class QueryResponse(BaseModel):
     answer: str
     sources: List[str]
+    snippets: Optional[List[SourceSnippet]] = None
 
 
 class ReloadRequest(BaseModel):
@@ -364,16 +371,43 @@ def query(req: QueryRequest, request: Request, requester: Requester = Depends(re
         log_audit("query", request=request, success=False, username=requester.username, details={"file": req.file, "error": str(e)})
         raise HTTPException(status_code=500, detail=str(e))
 
+    docs = result.get("source_documents", []) or []
     answer: str = result.get("result", "")
-    # Collect unique source hints
     srcs: List[str] = []
-    for d in result.get("source_documents", []) or []:
+    for d in docs:
         src = str((d.metadata or {}).get("source") or "")
         if src and src not in srcs:
             srcs.append(src)
 
-    log_audit("query", request=request, success=True, username=requester.username, details={"file": req.file, "k": req.top_k, "q": _clip(req.question), "sources": len(srcs)})
-    return QueryResponse(answer=answer, sources=srcs)
+    snippets: List[SourceSnippet] = []
+    if req.include_snippets:
+        seen: set[str] = set()
+        limit = max(5, (req.top_k or 3))
+        for d in docs[:limit]:
+            src = str((d.metadata or {}).get("source") or "")
+            content = (d.page_content or "").strip()
+            if not src or not content or src in seen:
+                continue
+            clean = re.sub(r"\s+", " ", content)
+            if len(clean) > 700:
+                clean = clean[:700].rstrip() + "…"
+            snippets.append(SourceSnippet(source=src, snippet=clean))
+            seen.add(src)
+
+    log_audit(
+        "query",
+        request=request,
+        success=True,
+        username=requester.username,
+        details={
+            "file": req.file,
+            "k": req.top_k,
+            "q": _clip(req.question),
+            "sources": len(srcs),
+            "snippets": len(snippets) if req.include_snippets else 0,
+        },
+    )
+    return QueryResponse(answer=answer, sources=srcs, snippets=snippets or None)
 
 
 @app.post("/reload")
