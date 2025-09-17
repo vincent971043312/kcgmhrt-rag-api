@@ -41,6 +41,37 @@ DOCS_DIR = os.getenv("DOCS_DIR", "docs")          # 放文件的資料夾
 DB_DIR = os.getenv("DB_DIR", "db")                # 向量資料庫路徑
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "my_rag_db")
 
+# Embedding 設定：允許透過環境變數調整，避免一次批量太大造成 OpenAI 503
+EMBED_MODEL = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+try:
+    EMBED_BATCH_SIZE = max(1, int(os.getenv("OPENAI_EMBED_BATCH", "32")))
+except ValueError:
+    EMBED_BATCH_SIZE = 32
+try:
+    EMBED_TIMEOUT = float(os.getenv("OPENAI_EMBED_TIMEOUT", "120"))
+except ValueError:
+    EMBED_TIMEOUT = 120.0
+try:
+    EMBED_RETRIES = max(1, int(os.getenv("OPENAI_EMBED_RETRIES", "6")))
+except ValueError:
+    EMBED_RETRIES = 6
+
+
+def _make_embeddings() -> OpenAIEmbeddings:
+    """建立 OpenAIEmbeddings，必要時向下相容舊版參數。"""
+    embed_kwargs = {
+        "model": EMBED_MODEL,
+        "chunk_size": EMBED_BATCH_SIZE,
+        "max_retries": EMBED_RETRIES,
+    }
+    if EMBED_TIMEOUT > 0:
+        embed_kwargs["request_timeout"] = EMBED_TIMEOUT
+    try:
+        return OpenAIEmbeddings(**embed_kwargs)
+    except TypeError:
+        embed_kwargs.pop("request_timeout", None)
+        return OpenAIEmbeddings(**embed_kwargs)
+
 CATEGORY_LABELS = {
     "manuals": "操作規範",
     "meetings": "會議紀錄",
@@ -209,10 +240,7 @@ def build_or_load_db_for_file(file: str, force: bool = False) -> Chroma:
         raise ValueError(f"檔案不存在或不支援: {file}")
 
     # 嵌入設定：小批次避免超過 OpenAI 單請求 token 上限
-    embeddings = OpenAIEmbeddings(
-        model="text-embedding-3-small",
-        chunk_size=128,
-    )
+    embeddings = _make_embeddings()
 
     rel_path = file.replace("\\", "/")
     safe_key = rel_path.replace("/", "__")
@@ -316,10 +344,7 @@ def build_or_load_db_for_category(category: str, force: bool = False) -> Chroma:
     if not files:
         raise ValueError(f"分類 {category} 尚無可用文件")
 
-    embeddings = OpenAIEmbeddings(
-        model="text-embedding-3-small",
-        chunk_size=128,
-    )
+    embeddings = _make_embeddings()
 
     safe = _safe_stem(f"cat-{key}")
     subdir = os.path.join(DB_DIR, safe)
