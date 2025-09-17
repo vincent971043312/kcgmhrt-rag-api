@@ -1,22 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 
 type QueryResp = { answer: string; sources: string[] };
 type SessionInfo = { username: string; expires_at?: string; via?: string };
 type Toast = { text: string; kind: "ok" | "err" } | null;
-
-type ParsedFile = { path: string; category: string; name: string };
-
-const ALL_CATEGORY = "__all";
-const UNCLASSIFIED = "__uncategorized";
-
-const CATEGORY_LABELS: Record<string, string> = {
-  [UNCLASSIFIED]: "未分類",
-  manuals: "操作規範",
-  meetings: "會議紀錄",
-};
 
 const containerStyle: CSSProperties = {
   maxWidth: 880,
@@ -52,6 +41,10 @@ function safeMessage(value: unknown): string {
   }
 }
 
+function basename(path: string) {
+  return path.replace(/\\/g, "/").split("/").filter(Boolean).pop() || path;
+}
+
 export default function Page() {
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [checking, setChecking] = useState(true);
@@ -63,7 +56,6 @@ export default function Page() {
 
   const [files, setFiles] = useState<string[]>([]);
   const [file, setFile] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<string>(ALL_CATEGORY);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [sources, setSources] = useState<string[]>([]);
@@ -88,46 +80,6 @@ export default function Page() {
     setLogoutLoading(false);
     pushToast(message || "登入已過期，請重新登入", "err");
   }
-
-  const parsedFiles = useMemo<ParsedFile[]>(() => {
-    return files.map((path) => {
-      const cleaned = path.replace(/\\/g, "/");
-      const parts = cleaned.split("/").filter(Boolean);
-      if (parts.length <= 1) {
-        return { path: cleaned, category: UNCLASSIFIED, name: parts[0] ?? cleaned };
-      }
-      return {
-        path: cleaned,
-        category: parts[0],
-        name: parts.slice(1).join("/"),
-      };
-    });
-  }, [files]);
-
-  const categoryOptions = useMemo(() => {
-    const counts = new Map<string, number>();
-    counts.set(ALL_CATEGORY, parsedFiles.length);
-    parsedFiles.forEach((item) => {
-      counts.set(item.category, (counts.get(item.category) || 0) + 1);
-    });
-    return Array.from(counts.entries()).map(([key, count]) => ({
-      key,
-      label:
-        key === ALL_CATEGORY
-          ? `全部 (${count})`
-          : `${CATEGORY_LABELS[key] || key} (${count})`,
-    }));
-  }, [parsedFiles]);
-
-  const filteredFiles = useMemo(() => {
-    if (selectedCategory === ALL_CATEGORY) return parsedFiles;
-    return parsedFiles.filter((item) => item.category === selectedCategory);
-  }, [parsedFiles, selectedCategory]);
-
-  const canAsk = useMemo(
-    () => !!session && !!file && !!question && !loading,
-    [session, file, question, loading]
-  );
 
   async function fetchSession() {
     try {
@@ -158,26 +110,6 @@ export default function Page() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.username]);
-
-  useEffect(() => {
-    if (selectedCategory !== ALL_CATEGORY) {
-      const hasCategory = parsedFiles.some((item) => item.category === selectedCategory);
-      if (!hasCategory) {
-        setSelectedCategory(ALL_CATEGORY);
-      }
-    }
-  }, [parsedFiles, selectedCategory]);
-
-  useEffect(() => {
-    if (!filteredFiles.length) {
-      setFile("");
-      return;
-    }
-    const exists = filteredFiles.some((item) => item.path === file);
-    if (!exists) {
-      setFile(filteredFiles[0].path);
-    }
-  }, [filteredFiles, file]);
 
   async function refreshFiles() {
     if (!session) return;
@@ -344,13 +276,6 @@ export default function Page() {
     return `/api/doc/${segments.map((part) => encodeURIComponent(part)).join('/')}`;
   };
 
-  const sourceDisplayName = (src: string) => {
-    const cleaned = src.replace(/\\/g, "/");
-    const parts = cleaned.split("/").filter(Boolean);
-    if (parts.length <= 1) return parts[0] || cleaned;
-    return parts.slice(1).join("/");
-  };
-
   return (
     <div style={containerStyle}>
       <header style={{ textAlign: "center", marginBottom: 24 }}>
@@ -380,24 +305,11 @@ export default function Page() {
           </Box>
 
           <Box>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-              {categoryOptions.map(({ key, label }) => (
-                <button
-                  type="button"
-                  key={key}
-                  onClick={() => setSelectedCategory(key)}
-                  className={selectedCategory === key ? "category-button active" : "category-button"}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
             <label style={labelStyle}>檔案清單</label>
             <select value={file} onChange={(e) => setFile(e.target.value)} style={{ width: "100%", padding: 8 }}>
-              {filteredFiles.map((item) => (
-                <option key={item.path} value={item.path}>
-                  {item.name}
+              {files.map((f) => (
+                <option key={f} value={f}>
+                  {basename(f)}
                 </option>
               ))}
             </select>
@@ -417,7 +329,7 @@ export default function Page() {
                 style={{ width: "100%", minHeight: 120, padding: 8 }}
               />
               <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-                <button onClick={doAsk} disabled={!canAsk}>
+                <button onClick={doAsk} disabled={!session || !file || !question || loading}>
                   {loading ? "查詢中..." : "送出查詢"}
                 </button>
               </div>
@@ -435,7 +347,7 @@ export default function Page() {
               {sources.map((src) => (
                 <li key={src}>
                   <a href={docUrl(src)} target="_blank" rel="noopener noreferrer" className="source-link">
-                    {sourceDisplayName(src)}
+                    {basename(src)}
                   </a>
                 </li>
               ))}
