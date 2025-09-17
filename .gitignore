@@ -5,3 +5,7 @@ webapp/node_modules/
 webapp/.next/
 .vercel
 .vscode/
+.env
+backend.log
+logs/
+db/
