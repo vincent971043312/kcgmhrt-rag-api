@@ -3,10 +3,20 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 
-type SourceSnippet = { source: string; snippet: string };
-type QueryResp = { answer: string; sources: string[]; snippets?: SourceSnippet[] };
+type QueryResp = { answer: string; sources: string[] };
 type SessionInfo = { username: string; expires_at?: string; via?: string };
 type Toast = { text: string; kind: "ok" | "err" } | null;
+
+type ParsedFile = { path: string; category: string; name: string };
+
+const ALL_CATEGORY = "__all";
+const UNCLASSIFIED = "__uncategorized";
+
+const CATEGORY_LABELS: Record<string, string> = {
+  [UNCLASSIFIED]: "未分類",
+  manuals: "操作規範",
+  meetings: "會議紀錄",
+};
 
 const containerStyle: CSSProperties = {
   maxWidth: 880,
@@ -53,13 +63,13 @@ export default function Page() {
 
   const [files, setFiles] = useState<string[]>([]);
   const [file, setFile] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string>(ALL_CATEGORY);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [sources, setSources] = useState<string[]>([]);
   const [toast, setToast] = useState<Toast>(null);
   const [loading, setLoading] = useState(false);
   const [reloading, setReloading] = useState(false);
-  const [snippets, setSnippets] = useState<SourceSnippet[]>([]);
 
   function pushToast(text: string, kind: "ok" | "err") {
     setToast({ text, kind });
@@ -73,12 +83,46 @@ export default function Page() {
     setQuestion("");
     setAnswer("");
     setSources([]);
-    setSnippets([]);
     setLoading(false);
     setReloading(false);
     setLogoutLoading(false);
     pushToast(message || "登入已過期，請重新登入", "err");
   }
+
+  const parsedFiles = useMemo<ParsedFile[]>(() => {
+    return files.map((path) => {
+      const cleaned = path.replace(/\\/g, "/");
+      const parts = cleaned.split("/").filter(Boolean);
+      if (parts.length <= 1) {
+        return { path: cleaned, category: UNCLASSIFIED, name: parts[0] ?? cleaned };
+      }
+      return {
+        path: cleaned,
+        category: parts[0],
+        name: parts.slice(1).join("/"),
+      };
+    });
+  }, [files]);
+
+  const categoryOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    counts.set(ALL_CATEGORY, parsedFiles.length);
+    parsedFiles.forEach((item) => {
+      counts.set(item.category, (counts.get(item.category) || 0) + 1);
+    });
+    return Array.from(counts.entries()).map(([key, count]) => ({
+      key,
+      label:
+        key === ALL_CATEGORY
+          ? `全部 (${count})`
+          : `${CATEGORY_LABELS[key] || key} (${count})`,
+    }));
+  }, [parsedFiles]);
+
+  const filteredFiles = useMemo(() => {
+    if (selectedCategory === ALL_CATEGORY) return parsedFiles;
+    return parsedFiles.filter((item) => item.category === selectedCategory);
+  }, [parsedFiles, selectedCategory]);
 
   const canAsk = useMemo(
     () => !!session && !!file && !!question && !loading,
@@ -115,6 +159,26 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.username]);
 
+  useEffect(() => {
+    if (selectedCategory !== ALL_CATEGORY) {
+      const hasCategory = parsedFiles.some((item) => item.category === selectedCategory);
+      if (!hasCategory) {
+        setSelectedCategory(ALL_CATEGORY);
+      }
+    }
+  }, [parsedFiles, selectedCategory]);
+
+  useEffect(() => {
+    if (!filteredFiles.length) {
+      setFile("");
+      return;
+    }
+    const exists = filteredFiles.some((item) => item.path === file);
+    if (!exists) {
+      setFile(filteredFiles[0].path);
+    }
+  }, [filteredFiles, file]);
+
   async function refreshFiles() {
     if (!session) return;
     setFiles([]);
@@ -127,8 +191,11 @@ export default function Page() {
       }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const list = (await r.json()) as string[];
-      setFiles(list || []);
-      if (list?.length) setFile(list[0]);
+      const normalized = list?.map((item) => item.replace(/\\/g, "/")) ?? [];
+      setFiles(normalized);
+      if (normalized.length) {
+        setFile(normalized[0]);
+      }
     } catch (e) {
       pushToast(`載入檔案清單失敗：${safeMessage(e)}`, "err");
     }
@@ -162,12 +229,11 @@ export default function Page() {
     setLoading(true);
     setAnswer("(查詢中...)");
     setSources([]);
-    setSnippets([]);
     try {
       const r = await fetch("/api/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ file, question, top_k: 8, include_snippets: true }),
+        body: JSON.stringify({ file, question, top_k: 8, include_snippets: false }),
       });
       if (r.status === 401) {
         handleUnauthorized("登入已過期，查詢未送出");
@@ -178,7 +244,6 @@ export default function Page() {
       const data = (await r.json()) as QueryResp;
       setAnswer(data?.answer || "(無回答)");
       setSources(Array.isArray(data?.sources) ? data.sources : []);
-      setSnippets(Array.isArray(data?.snippets) ? data.snippets : []);
     } catch (e) {
       setAnswer(`查詢失敗：${safeMessage(e)}`);
     } finally {
@@ -188,14 +253,27 @@ export default function Page() {
 
   async function onLogin(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!loginUser || !loginPass) return;
+
+    const formData = new FormData(e.currentTarget);
+    const autofillUser = (formData.get("username") || "").toString().trim();
+    const autofillPass = (formData.get("password") || "").toString();
+    const user = (loginUser || autofillUser).trim();
+    const pwd = loginPass || autofillPass;
+
+    if (!user || !pwd) {
+      setAuthError("請輸入帳號與密碼");
+      return;
+    }
+
+    setLoginUser(user);
+    setLoginPass(pwd);
     setAuthError(null);
     setLoginLoading(true);
     try {
       const r = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: loginUser, password: loginPass }),
+        body: JSON.stringify({ username: user, password: pwd }),
       });
       const text = await r.text();
       if (!r.ok) {
@@ -210,8 +288,24 @@ export default function Page() {
         if (r.status === 401) setSession(null);
         return;
       }
-      await fetchSession();
-      pushToast(`歡迎 ${loginUser}`, "ok");
+      let loginInfo: SessionInfo | null = null;
+      try {
+        const parsed = JSON.parse(text) as Partial<SessionInfo> | null;
+        if (parsed && parsed.username) {
+          loginInfo = {
+            username: parsed.username,
+            expires_at: parsed.expires_at,
+            via: parsed.via ?? "session",
+          };
+          setSession(loginInfo);
+        }
+      } catch {
+        /* ignore */
+      }
+      if (!loginInfo) {
+        await fetchSession();
+      }
+      pushToast(`歡迎 ${loginInfo?.username ?? user}`, "ok");
       setLoginUser("");
       setLoginPass("");
     } catch (e) {
@@ -242,40 +336,20 @@ export default function Page() {
       setQuestion("");
       setAnswer("");
       setSources([]);
-      setSnippets([]);
     }
   }
 
-  const highlightTerms = useMemo(() => {
-    const raw = question.toLowerCase();
-    return Array.from(
-      new Set(
-        raw
-          .split(/[\s,，。.!?？:：;；()/\\-]+/g)
-          .map((w) => w.trim())
-          .filter((w) => w.length > 1)
-      )
-    );
-  }, [question]);
+  const docUrl = (src: string) => {
+    const segments = src.replace(/\\/g, "/").split("/").filter(Boolean);
+    return `/api/doc/${segments.map((part) => encodeURIComponent(part)).join('/')}`;
+  };
 
-  function renderSnippet(text: string) {
-    if (!text) return text;
-    if (!highlightTerms.length) return text;
-    const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex = new RegExp(`(${highlightTerms.map(escape).join("|")})`, "gi");
-    const parts = text.split(regex);
-    return parts.map((part, idx) =>
-      idx % 2 === 1 ? (
-        <mark key={`${part}-${idx}`} className="highlight-term">
-          {part}
-        </mark>
-      ) : (
-        <span key={`${part}-${idx}`}>{part}</span>
-      )
-    );
-  }
-
-  const docUrl = (src: string) => `/api/doc/${encodeURIComponent(src)}`;
+  const sourceDisplayName = (src: string) => {
+    const cleaned = src.replace(/\\/g, "/");
+    const parts = cleaned.split("/").filter(Boolean);
+    if (parts.length <= 1) return parts[0] || cleaned;
+    return parts.slice(1).join("/");
+  };
 
   return (
     <div style={containerStyle}>
@@ -306,11 +380,24 @@ export default function Page() {
           </Box>
 
           <Box>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+              {categoryOptions.map(({ key, label }) => (
+                <button
+                  type="button"
+                  key={key}
+                  onClick={() => setSelectedCategory(key)}
+                  className={selectedCategory === key ? "category-button active" : "category-button"}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
             <label style={labelStyle}>檔案清單</label>
             <select value={file} onChange={(e) => setFile(e.target.value)} style={{ width: "100%", padding: 8 }}>
-              {files.map((f) => (
-                <option key={f} value={f}>
-                  {f}
+              {filteredFiles.map((item) => (
+                <option key={item.path} value={item.path}>
+                  {item.name}
                 </option>
               ))}
             </select>
@@ -348,7 +435,7 @@ export default function Page() {
               {sources.map((src) => (
                 <li key={src}>
                   <a href={docUrl(src)} target="_blank" rel="noopener noreferrer" className="source-link">
-                    {src}
+                    {sourceDisplayName(src)}
                   </a>
                 </li>
               ))}
@@ -375,6 +462,7 @@ export default function Page() {
               <label style={labelStyle}>
                 帳號
                 <input
+                  name="username"
                   value={loginUser}
                   onChange={(e) => setLoginUser(e.target.value)}
                   autoComplete="username"
@@ -385,6 +473,7 @@ export default function Page() {
               <label style={labelStyle}>
                 密碼
                 <input
+                  name="password"
                   value={loginPass}
                   onChange={(e) => setLoginPass(e.target.value)}
                   type="password"

@@ -3,3 +3,4 @@ __pycache__/
 cookies.txt
 webapp/node_modules/
 webapp/.next/
+.vercel

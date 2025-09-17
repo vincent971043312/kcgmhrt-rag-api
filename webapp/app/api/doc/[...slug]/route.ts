@@ -4,10 +4,14 @@ import { backendBase, proxyHeaders, collectSetCookies } from '../../_utils'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-export async function GET(req: Request, { params }: { params: { filename: string } }) {
+export async function GET(req: Request, { params }: { params: { slug: string[] } }) {
   const base = backendBase()
-  const filename = params.filename
-  const target = `${base}/doc/${encodeURIComponent(filename)}`
+  const segments = params.slug || []
+  if (!segments.length) {
+    return NextResponse.json({ error: 'missing filename' }, { status: 400 })
+  }
+  const encoded = segments.map((part) => encodeURIComponent(part)).join('/')
+  const target = `${base}/doc/${encoded}`
 
   const r = await fetch(target, {
     headers: proxyHeaders(req),

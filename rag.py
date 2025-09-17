@@ -49,25 +49,32 @@ if not os.getenv("OPENAI_API_KEY"):
         "2) 或建立 .env 檔：OPENAI_API_KEY=your_key"
     )
 
+def _iter_doc_paths():
+    for root, _, files in os.walk(DOCS_DIR):
+        rel_dir = os.path.relpath(root, DOCS_DIR)
+        rel_dir = "" if rel_dir == "." else rel_dir
+        for file in files:
+            # Skip alternate data stream artifacts
+            if ":" in file or file.endswith("Zone.Identifier"):
+                print(f"⏭️ 跳過附帶資料檔: {os.path.join(rel_dir, file)}")
+                continue
+            lower = file.lower()
+            if not lower.endswith((".txt", ".pdf", ".md")):
+                print(f"⚠️ 不支援的檔案格式: {os.path.join(rel_dir, file)}")
+                continue
+            rel_path = os.path.join(rel_dir, file) if rel_dir else file
+            yield rel_path.replace("\\", "/")
+
+
 def _supported_files():
-    files = []
-    for file in os.listdir(DOCS_DIR):
-        # 跳過 Windows 下載檔案常見的附帶資料檔 (Alternate Data Streams)
-        if ":" in file or file.endswith("Zone.Identifier"):
-            print(f"⏭️ 跳過附帶資料檔: {file}")
-            continue
-        lower = file.lower()
-        if lower.endswith((".txt", ".pdf", ".md")):
-            files.append(file)
-        else:
-            print(f"⚠️ 不支援的檔案格式: {file}")
-    return sorted(files)
+    return sorted(_iter_doc_paths())
 
 
 def _compute_manifest(files):
     manifest = []
     for f in files:
-        p = os.path.join(DOCS_DIR, f)
+        rel_path = f.replace("\\", "/")
+        p = os.path.join(DOCS_DIR, *rel_path.split("/"))
         try:
             st = os.stat(p)
             manifest.append({
@@ -134,7 +141,8 @@ def _make_chat_llm(max_tokens: int = 512) -> ChatOpenAI:
 def load_documents():
     all_docs = []
     for file in _supported_files():
-        file_path = os.path.join(DOCS_DIR, file)
+        rel_path = file.replace("\\", "/")
+        file_path = os.path.join(DOCS_DIR, *rel_path.split("/"))
         lower = file.lower()
         if lower.endswith(".txt"):
             loader = TextLoader(file_path, encoding="utf-8")
@@ -177,7 +185,9 @@ def build_or_load_db_for_file(file: str, force: bool = False) -> Chroma:
         chunk_size=128,
     )
 
-    safe = _safe_stem(file)
+    rel_path = file.replace("\\", "/")
+    safe_key = rel_path.replace("/", "__")
+    safe = _safe_stem(safe_key)
     # 若多個檔案清理後同名，為避免衝突，附加短雜湊
     try:
         files_all = _supported_files()
@@ -185,7 +195,7 @@ def build_or_load_db_for_file(file: str, force: bool = False) -> Chroma:
     except Exception:
         collisions = [file]
     if len(collisions) > 1:
-        short = hashlib.sha1(file.encode('utf-8')).hexdigest()[:8]
+        short = hashlib.sha1(rel_path.encode('utf-8')).hexdigest()[:8]
         safe = f"{safe}-{short}"
     subdir = os.path.join(DB_DIR, safe)
     os.makedirs(subdir, exist_ok=True)
@@ -226,7 +236,7 @@ def build_or_load_db_for_file(file: str, force: bool = False) -> Chroma:
 
     # 建立新資料庫（僅此檔案）
     print(f"📂 建立新資料庫（{file}）...")
-    path = os.path.join(DOCS_DIR, file)
+    path = os.path.join(DOCS_DIR, *rel_path.split("/"))
     lower = file.lower()
     if lower.endswith('.txt'):
         loader = TextLoader(path, encoding='utf-8')
@@ -241,7 +251,7 @@ def build_or_load_db_for_file(file: str, force: bool = False) -> Chroma:
     docs = []
     for d in raw_docs:
         meta = dict(d.metadata or {})
-        meta["source"] = file
+        meta["source"] = rel_path
         docs.append(Document(page_content=d.page_content, metadata=meta))
 
     splitter = RecursiveCharacterTextSplitter(

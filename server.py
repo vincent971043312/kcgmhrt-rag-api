@@ -424,33 +424,34 @@ def reload_file(req: ReloadRequest, request: Request, requester: Requester = Dep
     return {"status": "reloaded", "file": req.file}
 
 
-@app.get("/doc/{filename}")
-def get_document(filename: str, request: Request, requester: Requester = Depends(require_user)):
+@app.get("/doc/{path:path}")
+def get_document(path: str, request: Request, requester: Requester = Depends(require_user)):
+    normalized = path.replace("\\", "/")
     files = rag_impl._supported_files()
-    if filename not in files:
+    if normalized not in files:
         log_audit(
             "doc",
             request=request,
             success=False,
             username=requester.username,
-            details={"file": filename, "reason": "not_found"},
+            details={"file": normalized, "reason": "not_found"},
         )
         raise HTTPException(status_code=404, detail="File not found or unsupported")
 
-    doc_path = os.path.join(rag_impl.DOCS_DIR, filename)
+    doc_path = os.path.join(rag_impl.DOCS_DIR, *normalized.split("/"))
     if not os.path.exists(doc_path):
         log_audit(
             "doc",
             request=request,
             success=False,
             username=requester.username,
-            details={"file": filename, "reason": "missing_on_disk"},
+            details={"file": normalized, "reason": "missing_on_disk"},
         )
         raise HTTPException(status_code=404, detail="Document not found on disk")
 
     media_type, _ = mimetypes.guess_type(doc_path)
-    log_audit("doc", request=request, success=True, username=requester.username, details={"file": filename})
-    return FileResponse(doc_path, media_type=media_type or "application/octet-stream", filename=filename)
+    log_audit("doc", request=request, success=True, username=requester.username, details={"file": normalized})
+    return FileResponse(doc_path, media_type=media_type or "application/octet-stream", filename=os.path.basename(doc_path))
 
 
 # Convenience root
