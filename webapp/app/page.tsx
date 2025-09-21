@@ -164,7 +164,8 @@ export default function Page() {
       }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const list = (await r.json()) as string[];
-      const normalized = list?.map((item) => item.replace(/\\/g, "/")) ?? [];
+      const normalized =
+        list?.map((item) => item.replace(/\\/g, "/")).filter((item) => item.startsWith(`${category}/`)) ?? [];
       setFiles(normalized);
       if (normalized.length === 0) {
         setSelectedFile("");
