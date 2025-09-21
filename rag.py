@@ -27,7 +27,12 @@ except Exception:
 
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_chroma import Chroma
-from langchain_community.document_loaders import TextLoader, PyPDFLoader, UnstructuredMarkdownLoader
+from langchain_community.document_loaders import (
+    TextLoader,
+    PyPDFLoader,
+    UnstructuredMarkdownLoader,
+    UnstructuredWordDocumentLoader,
+)
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import RetrievalQA
 from langchain.docstore.document import Document
@@ -97,7 +102,7 @@ def _iter_doc_paths():
                 print(f"⏭️ 跳過附帶資料檔: {os.path.join(rel_dir, file)}")
                 continue
             lower = file.lower()
-            if not lower.endswith((".txt", ".pdf", ".md")):
+            if not lower.endswith((".txt", ".pdf", ".md", ".docx", ".doc")):
                 print(f"⚠️ 不支援的檔案格式: {os.path.join(rel_dir, file)}")
                 continue
             rel_path = os.path.join(rel_dir, file) if rel_dir else file
@@ -211,6 +216,8 @@ def load_documents():
             loader = PyPDFLoader(file_path)
         elif lower.endswith(".md"):
             loader = UnstructuredMarkdownLoader(file_path)
+        elif lower.endswith((".docx", ".doc")):
+            loader = UnstructuredWordDocumentLoader(file_path)
         else:
             continue
 
@@ -302,6 +309,8 @@ def build_or_load_db_for_file(file: str, force: bool = False) -> Chroma:
         loader = PyPDFLoader(path)
     elif lower.endswith('.md'):
         loader = UnstructuredMarkdownLoader(path)
+    elif lower.endswith(('.docx', '.doc')):
+        loader = UnstructuredWordDocumentLoader(path)
     else:
         raise ValueError(f"不支援的檔案格式: {file}")
 
@@ -394,6 +403,8 @@ def build_or_load_db_for_category(category: str, force: bool = False) -> Chroma:
             loader = PyPDFLoader(abs_path)
         elif lower.endswith('.md'):
             loader = UnstructuredMarkdownLoader(abs_path)
+        elif lower.endswith(('.docx', '.doc')):
+            loader = UnstructuredWordDocumentLoader(abs_path)
         else:
             continue
         for d in loader.load():
