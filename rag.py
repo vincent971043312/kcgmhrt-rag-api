@@ -73,7 +73,8 @@ def _make_embeddings() -> OpenAIEmbeddings:
         return OpenAIEmbeddings(**embed_kwargs)
 
 CATEGORY_LABELS = {
-    "manuals": "操作規範",
+    "instrument-manuals": "儀器類操作規範",
+    "training-manuals": "教學類操作規範",
     "meetings": "會議紀錄",
 }
 CATEGORY_KEYS = list(CATEGORY_LABELS.keys())

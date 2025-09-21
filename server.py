@@ -48,7 +48,7 @@ app.add_middleware(
 
 
 class QueryRequest(BaseModel):
-    category: Optional[str] = Field(None, description="Category under docs/ (e.g. manuals)")
+    category: Optional[str] = Field(None, description="Category under docs/ (e.g. instrument-manuals)")
     file: Optional[str] = Field(None, description="Filename under docs/ to query")
     question: str = Field(..., description="User question")
     top_k: Optional[int] = Field(3, ge=1, le=10, description="Retriever top-k")
