@@ -375,7 +375,10 @@ def list_files(request: Request, requester: Requester = Depends(require_user), c
     if category:
         norm = category.replace("\\", "/").strip("/")
         if norm:
-            files = [f for f in files if f.startswith(f"{norm}/")]
+            if norm == "meetings":
+                files = list(rag_impl.MEETING_BUNDLES.keys())
+            else:
+                files = [f for f in files if f.startswith(f"{norm}/")]
     log_audit(
         "list_files",
         request=request,

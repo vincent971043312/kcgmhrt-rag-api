@@ -82,6 +82,14 @@ CATEGORY_LABELS = {
     "training-manuals": "教學類操作規範",
     "meetings": "會議紀錄",
 }
+
+MEETING_BUNDLES: dict[str, list[str]] = {
+    "meetings/2025年6-8月基層主管會議紀錄": [
+        "meetings/2025年6月基層主管會議記錄.pdf",
+        "meetings/2025年7月基層主管會議記錄.pdf",
+        "meetings/2025年8月基層主管會議記錄.pdf",
+    ],
+}
 CATEGORY_KEYS = list(CATEGORY_LABELS.keys())
 
 # ========= 驗證金鑰 =========
@@ -110,13 +118,46 @@ def _iter_doc_paths():
 
 
 def _supported_files():
-    return sorted(_iter_doc_paths())
+    files = sorted(_iter_doc_paths())
+    files.extend(sorted(MEETING_BUNDLES.keys()))
+    return files
+
+
+def _expand_meeting_bundle(path: str) -> list[str]:
+    clean = path.replace("\\", "/").strip()
+    return MEETING_BUNDLES.get(clean, [clean])
+
+
+def _load_documents_for_path(rel_path: str) -> list[Document]:
+    normalized = rel_path.replace("\\", "/").strip()
+    abs_path = os.path.join(DOCS_DIR, *normalized.split("/"))
+    lower = normalized.lower()
+    if lower.endswith(".txt"):
+        loader = TextLoader(abs_path, encoding="utf-8")
+    elif lower.endswith(".pdf"):
+        loader = PyPDFLoader(abs_path)
+    elif lower.endswith(".md"):
+        loader = UnstructuredMarkdownLoader(abs_path)
+    elif lower.endswith((".docx", ".doc")):
+        loader = UnstructuredWordDocumentLoader(abs_path)
+    else:
+        raise ValueError(f"不支援的檔案格式: {rel_path}")
+
+    raw_docs = loader.load()
+    docs: list[Document] = []
+    for d in raw_docs:
+        meta = dict(d.metadata or {})
+        meta["source"] = normalized
+        docs.append(Document(page_content=d.page_content, metadata=meta))
+    return docs
 
 
 def _iter_doc_paths_from_category(category: str) -> list[str]:
     prefix = category.replace("\\", "/").strip("/")
     if not prefix:
         return []
+    if prefix == "meetings":
+        return list(MEETING_BUNDLES.keys())
     prefixed = []
     for rel_path in _iter_doc_paths():
         if rel_path.startswith(prefix + "/"):
@@ -127,8 +168,12 @@ def _iter_doc_paths_from_category(category: str) -> list[str]:
 def available_categories() -> list[tuple[str, int]]:
     results: list[tuple[str, int]] = []
     for key in CATEGORY_KEYS:
-        files = _iter_doc_paths_from_category(key)
-        results.append((key, len(files)))
+        if key == "meetings":
+            count = len(MEETING_BUNDLES)
+        else:
+            files = _iter_doc_paths_from_category(key)
+            count = len(files)
+        results.append((key, count))
     return results
 
 
@@ -273,7 +318,10 @@ def build_or_load_db_for_file(file: str, force: bool = False) -> Chroma:
     manifest_path = os.path.join(subdir, "manifest.json")
     collection = f"{COLLECTION_NAME}_{safe}"
 
-    new_manifest = _compute_manifest([file])
+    bundle_paths = _expand_meeting_bundle(rel_path)
+    is_bundle = bundle_paths != [rel_path]
+    manifest_sources = bundle_paths if is_bundle else [rel_path]
+    new_manifest = _compute_manifest(manifest_sources)
 
     # 強制重建
     if force:
@@ -303,25 +351,9 @@ def build_or_load_db_for_file(file: str, force: bool = False) -> Chroma:
 
     # 建立新資料庫（僅此檔案）
     print(f"📂 建立新資料庫（{file}）...")
-    path = os.path.join(DOCS_DIR, *rel_path.split("/"))
-    lower = file.lower()
-    if lower.endswith('.txt'):
-        loader = TextLoader(path, encoding='utf-8')
-    elif lower.endswith('.pdf'):
-        loader = PyPDFLoader(path)
-    elif lower.endswith('.md'):
-        loader = UnstructuredMarkdownLoader(path)
-    elif lower.endswith(('.docx', '.doc')):
-        loader = UnstructuredWordDocumentLoader(path)
-    else:
-        raise ValueError(f"不支援的檔案格式: {file}")
-
-    raw_docs = loader.load()
-    docs = []
-    for d in raw_docs:
-        meta = dict(d.metadata or {})
-        meta["source"] = rel_path
-        docs.append(Document(page_content=d.page_content, metadata=meta))
+    docs: list[Document] = []
+    for source_path in manifest_sources:
+        docs.extend(_load_documents_for_path(source_path))
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=500,
@@ -368,7 +400,13 @@ def build_or_load_db_for_category(category: str, force: bool = False) -> Chroma:
 
     manifest_path = os.path.join(subdir, "manifest.json")
     collection = f"{COLLECTION_NAME}_{safe}"
-    new_manifest = _compute_manifest(files)
+    expanded_manifest: list[str] = []
+    if key == "meetings":
+        for item in files:
+            expanded_manifest.extend(_expand_meeting_bundle(item))
+    else:
+        expanded_manifest = files
+    new_manifest = _compute_manifest(expanded_manifest)
 
     if force:
         print(f"♻️ 重新建立分類 {category} 的資料庫...")
@@ -397,22 +435,8 @@ def build_or_load_db_for_category(category: str, force: bool = False) -> Chroma:
     print(f"📚 建立分類資料庫（{category}）...")
     all_docs = []
     for rel_path in files:
-        abs_path = os.path.join(DOCS_DIR, *rel_path.split("/"))
-        lower = rel_path.lower()
-        if lower.endswith('.txt'):
-            loader = TextLoader(abs_path, encoding='utf-8')
-        elif lower.endswith('.pdf'):
-            loader = PyPDFLoader(abs_path)
-        elif lower.endswith('.md'):
-            loader = UnstructuredMarkdownLoader(abs_path)
-        elif lower.endswith(('.docx', '.doc')):
-            loader = UnstructuredWordDocumentLoader(abs_path)
-        else:
-            continue
-        for d in loader.load():
-            meta = dict(d.metadata or {})
-            meta["source"] = rel_path
-            all_docs.append(Document(page_content=d.page_content, metadata=meta))
+        for expanded in _expand_meeting_bundle(rel_path):
+            all_docs.extend(_load_documents_for_path(expanded))
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=500,
@@ -541,7 +565,12 @@ def preindex_all(
 ):
     files = _supported_files()
     if pdf_only:
-        files = [f for f in files if f.lower().endswith(('.pdf', '.docx', '.doc'))]
+        filtered: list[str] = []
+        for f in files:
+            lower = f.lower()
+            if lower.endswith(('.pdf', '.docx', '.doc')) or f in MEETING_BUNDLES:
+                filtered.append(f)
+        files = filtered
     total = len(files)
     if not files:
         print("📭 沒有符合的檔案可建立索引")
