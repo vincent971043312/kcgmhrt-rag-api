@@ -6,7 +6,9 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(req: Request) {
   const base = backendBase()
-  const r = await fetch(`${base}/files`, {
+  const { search } = new URL(req.url)
+  const target = `${base}/files${search}`
+  const r = await fetch(target, {
     headers: proxyHeaders(req),
     cache: 'no-store',
   })
