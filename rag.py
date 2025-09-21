@@ -256,7 +256,9 @@ def build_or_load_db_for_file(file: str, force: bool = False) -> Chroma:
     # 若多個檔案清理後同名，為避免衝突，附加短雜湊
     try:
         files_all = _supported_files()
-        collisions = [f for f in files_all if _safe_stem(f) == safe]
+        collisions = [
+            f for f in files_all if _safe_stem(f.replace("/", "__")) == safe
+        ]
     except Exception:
         collisions = [file]
     if len(collisions) > 1:
