@@ -541,7 +541,7 @@ def preindex_all(
 ):
     files = _supported_files()
     if pdf_only:
-        files = [f for f in files if f.lower().endswith('.pdf')]
+        files = [f for f in files if f.lower().endswith(('.pdf', '.docx', '.doc'))]
     total = len(files)
     if not files:
         print("📭 沒有符合的檔案可建立索引")

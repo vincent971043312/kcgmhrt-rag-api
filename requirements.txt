@@ -5,6 +5,7 @@ langchain-chroma>=0.1
 chromadb>=0.5
 pypdf>=4
 unstructured>=0.14
+python-docx>=0.8.11
 python-dotenv>=1.0
 fastapi>=0.110
 uvicorn[standard]>=0.29
