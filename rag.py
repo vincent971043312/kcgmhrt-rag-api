@@ -237,7 +237,7 @@ def _make_chat_llm(max_tokens: int = 512) -> ChatOpenAI:
     """建立 ChatOpenAI；若支援 `max_tokens` 則直接傳入，否則退回 `model_kwargs`。
     這可避免『請顯式指定參數』的警告，同時相容舊版型別檢查。
     """
-    kwargs: dict = {"model": "gpt-5-2025-08-07", "temperature": 0}
+    kwargs: dict = {"model": "gpt-4o", "temperature": 0}
     try:
         params = inspect.signature(ChatOpenAI).parameters
     except Exception:
