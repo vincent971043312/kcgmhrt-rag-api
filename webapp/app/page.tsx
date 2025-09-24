@@ -485,16 +485,9 @@ export default function Page() {
           ) : (
             <form
               onSubmit={onLogin}
-              style={{
-                display: "grid",
-                gap: 12,
-                width: "100%",
-                maxWidth: 360,
-                margin: "0 auto",
-                justifyItems: "stretch",
-              }}
+              style={{ display: "grid", gap: 14, justifyItems: "center", width: "100%" }}
             >
-              <div>
+              <div style={{ justifySelf: "stretch" }}>
                 <h2 style={{ margin: 0 }}>請先登入</h2>
                 <p style={{ margin: 0, color: "#6b7280", fontSize: 14 }}>
                   此服務需要帳號密碼方可使用，所有操作都會記錄於審計日誌。
@@ -505,30 +498,38 @@ export default function Page() {
                   {authError}
                 </div>
               )}
-              <label style={labelStyle}>
-                帳號
-                <input
-                  name="username"
-                  value={loginUser}
-                  onChange={(e) => setLoginUser(e.target.value)}
-                  autoComplete="username"
-                  required
-                  style={{ width: "100%", padding: 8 }}
-                />
-              </label>
-              <label style={labelStyle}>
-                密碼
-                <input
-                  name="password"
-                  value={loginPass}
-                  onChange={(e) => setLoginPass(e.target.value)}
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                  style={{ width: "100%", padding: 8 }}
-                />
-              </label>
-              <button type="submit" disabled={loginLoading || !loginUser || !loginPass}>
+              <div style={{ width: "100%", maxWidth: 320 }}>
+                <label style={labelStyle}>
+                  帳號
+                  <input
+                    name="username"
+                    value={loginUser}
+                    onChange={(e) => setLoginUser(e.target.value)}
+                    autoComplete="username"
+                    required
+                    style={{ width: "100%", padding: 8 }}
+                  />
+                </label>
+              </div>
+              <div style={{ width: "100%", maxWidth: 320 }}>
+                <label style={labelStyle}>
+                  密碼
+                  <input
+                    name="password"
+                    value={loginPass}
+                    onChange={(e) => setLoginPass(e.target.value)}
+                    type="password"
+                    autoComplete="current-password"
+                    required
+                    style={{ width: "100%", padding: 8 }}
+                  />
+                </label>
+              </div>
+              <button
+                type="submit"
+                disabled={loginLoading || !loginUser || !loginPass}
+                style={{ justifySelf: "center", minWidth: 130, padding: "9px 22px" }}
+              >
                 {loginLoading ? "登入中..." : "登入"}
               </button>
             </form>

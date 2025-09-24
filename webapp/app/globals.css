@@ -6,9 +6,11 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: linear-gradient(120deg, #0f172a, #1e1b4b, #312e81, #0f172a);
-  background-size: 180% 180%;
-  animation: gradientShift 24s ease infinite;
+  background:
+    radial-gradient(circle at 15% 20%, rgba(56, 189, 248, 0.28), transparent 55%),
+    radial-gradient(circle at 80% 25%, rgba(52, 211, 153, 0.24), transparent 58%),
+    linear-gradient(140deg, #e0f2fe 0%, #f8fafc 35%, #fce7f3 70%, #ede9fe 100%);
+  background-attachment: fixed;
   position: relative;
   overflow-x: hidden;
 }
@@ -16,43 +18,61 @@ body {
 body::before {
   content: "";
   position: fixed;
-  inset: 0;
+  inset: -25%;
   background:
-    radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.4), transparent 55%),
-    radial-gradient(circle at 80% 10%, rgba(147, 51, 234, 0.4), transparent 60%),
-    radial-gradient(circle at 50% 80%, rgba(16, 185, 129, 0.35), transparent 55%);
-  filter: blur(36px);
-  opacity: 0.85;
-  transform: scale(1.08);
-  animation: pulseGlow 18s ease-in-out infinite alternate;
+    radial-gradient(circle at 30% 30%, rgba(125, 211, 252, 0.18), transparent 65%),
+    radial-gradient(circle at 70% 60%, rgba(192, 132, 252, 0.18), transparent 60%),
+    url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20width%3D%27160%27%20height%3D%27160%27%20viewBox%3D%270%200%20160%20160%27%3E%3Crect%20width%3D%27160%27%20height%3D%27160%27%20fill%3D%27none%27/%3E%3Cpath%20d%3D%27M76%2024h8v28h28v8h-28v28h-8V60H48v-8h28z%27%20fill%3D%27%2338bdf8%27%20fill-opacity%3D%270.55%27/%3E%3Cpath%20d%3D%27M28%20100h6v18h18v6H34v18h-6v-18H10v-6h18z%27%20fill%3D%27%2334d399%27%20fill-opacity%3D%270.6%27/%3E%3Cpath%20d%3D%27M120%20108h7v20h20v7h-20v20h-7v-20h-20v-7h20z%27%20fill%3D%27%23a855f7%27%20fill-opacity%3D%270.4%27/%3E%3C/svg%3E");
+  background-size: 140% 140%, 160% 160%, 180px 180px;
+  background-repeat: no-repeat, no-repeat, repeat;
+  opacity: 0.55;
+  filter: blur(0.2px);
+  animation: floatSymbols 36s linear infinite;
   pointer-events: none;
-  z-index: -1;
+  z-index: -2;
 }
 
-@keyframes gradientShift {
+body::after {
+  content: "";
+  position: fixed;
+  inset: -40%;
+  background:
+    radial-gradient(circle at 20% 70%, rgba(59, 130, 246, 0.18), transparent 60%),
+    radial-gradient(circle at 75% 80%, rgba(16, 185, 129, 0.18), transparent 65%),
+    linear-gradient(120deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0));
+  opacity: 0.6;
+  animation: pulseField 12s ease-in-out infinite;
+  pointer-events: none;
+  z-index: -3;
+}
+
+@keyframes floatSymbols {
   0% {
-    background-position: 0% 50%;
+    transform: translate3d(-3%, -2%, 0) scale(1.05);
+    background-position: 0% 0%, 90% 20%, 0 0;
   }
   50% {
-    background-position: 100% 50%;
+    transform: translate3d(3%, 4%, 0) scale(1.08);
+    background-position: 60% 40%, 20% 70%, 50% -60%;
   }
   100% {
-    background-position: 0% 50%;
+    transform: translate3d(-3%, -2%, 0) scale(1.05);
+    background-position: 0% 0%, 90% 20%, 0 0;
   }
 }
 
-@keyframes pulseGlow {
+@keyframes pulseField {
   0% {
-    opacity: 0.7;
-    transform: scale(1.05);
+    transform: scale(1.02);
+    opacity: 0.55;
   }
   50% {
-    opacity: 0.9;
-    transform: scale(1.12);
-  }
-  100% {
-    opacity: 0.75;
     transform: scale(1.08);
+    opacity: 0.75;
+  }
+  100% {
+    transform: scale(1.02);
+    opacity: 0.55;
   }
 }
 
