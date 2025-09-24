@@ -483,7 +483,17 @@ export default function Page() {
           {checking ? (
             <p style={{ textAlign: "center", color: "#6b7280" }}>正在確認登入狀態…</p>
           ) : (
-            <form onSubmit={onLogin} style={{ display: "grid", gap: 12 }}>
+            <form
+              onSubmit={onLogin}
+              style={{
+                display: "grid",
+                gap: 12,
+                width: "100%",
+                maxWidth: 360,
+                margin: "0 auto",
+                justifyItems: "stretch",
+              }}
+            >
               <div>
                 <h2 style={{ margin: 0 }}>請先登入</h2>
                 <p style={{ margin: 0, color: "#6b7280", fontSize: 14 }}>

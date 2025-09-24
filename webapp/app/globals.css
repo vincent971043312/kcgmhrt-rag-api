@@ -6,7 +6,54 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: linear-gradient(135deg, #e0f2fe 0%, #fce7f3 50%, #ede9fe 100%);
+  background: linear-gradient(120deg, #0f172a, #1e1b4b, #312e81, #0f172a);
+  background-size: 180% 180%;
+  animation: gradientShift 24s ease infinite;
+  position: relative;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.4), transparent 55%),
+    radial-gradient(circle at 80% 10%, rgba(147, 51, 234, 0.4), transparent 60%),
+    radial-gradient(circle at 50% 80%, rgba(16, 185, 129, 0.35), transparent 55%);
+  filter: blur(36px);
+  opacity: 0.85;
+  transform: scale(1.08);
+  animation: pulseGlow 18s ease-in-out infinite alternate;
+  pointer-events: none;
+  z-index: -1;
+}
+
+@keyframes gradientShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes pulseGlow {
+  0% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.12);
+  }
+  100% {
+    opacity: 0.75;
+    transform: scale(1.08);
+  }
 }
 
 button {
